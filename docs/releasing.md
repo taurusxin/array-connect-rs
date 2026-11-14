@@ -28,6 +28,8 @@
 
 两种客户端均将 OpenSSL 从锁定的源码依赖静态链接，默认 TLS 后端仍为 Rustls。Windows CLI 的 Wintun 与桌面端使用同一下载脚本及 SHA-256 验证。当前 Windows 产物未做代码签名；macOS 使用 ad-hoc 签名，未配置 Apple Developer 签名及 notarization。
 
+Windows 发布使用 PowerShell 执行编译，先检查原生 Perl 的 `MSWin32` 平台和 OpenSSL 所需模块，并将其绝对路径写入 `OPENSSL_SRC_PERL` / `PERL`。这样可避免 Git Bash 优先使用 MSYS Perl，导致 `Locale/Maketext/Simple.pm` 查找失败及 Windows 模块路径被错误解析。Linux/macOS 继续使用 Bash。
+
 ## 发布新版时
 
 1. 完成修改、验收并将发布说明写入 `docs/releases/v目标版本.md`。工作流优先使用该文件作为 Release 正文；未提供时由 GitHub 自动生成。

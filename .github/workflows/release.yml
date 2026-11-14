@@ -81,9 +81,28 @@ jobs:
         if: runner.os == 'Windows'
         with:
           perl-version: '5.40'
+      - name: Select native Windows Perl for OpenSSL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $nativePerl = (Get-Command perl -CommandType Application -ErrorAction Stop).Source
+          $perlPlatform = & $nativePerl -e 'print $^O'
+          if ($LASTEXITCODE -ne 0 -or $perlPlatform -ne 'MSWin32') {
+            throw "OpenSSL MSVC builds require native Windows Perl; found $perlPlatform at $nativePerl"
+          }
+          & $nativePerl -MLocale::Maketext::Simple -MIPC::Cmd -e 'print "OpenSSL Perl prerequisites OK\n"'
+          if ($LASTEXITCODE -ne 0) { throw 'Required OpenSSL Perl modules are unavailable' }
+          "OPENSSL_SRC_PERL=$nativePerl" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PERL=$nativePerl" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Output "OpenSSL will use $nativePerl"
       - name: Build CLI with statically linked OpenSSL
+        if: runner.os != 'Windows'
         shell: bash
         run: cargo build --locked --release --bin arraysslvpn --features openssl-vendored --target "$RELEASE_TARGET"
+      - name: Build Windows CLI with statically linked OpenSSL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cargo build --locked --release --bin arraysslvpn --features openssl-vendored --target "$env:RELEASE_TARGET"
       - name: Prepare verified Windows driver and license
         if: runner.os == 'Windows'
         shell: pwsh
@@ -153,10 +172,25 @@ jobs:
         if: runner.os == 'Windows'
         with:
           perl-version: '5.40'
+      - name: Select native Windows Perl for OpenSSL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $nativePerl = (Get-Command perl -CommandType Application -ErrorAction Stop).Source
+          $perlPlatform = & $nativePerl -e 'print $^O'
+          if ($LASTEXITCODE -ne 0 -or $perlPlatform -ne 'MSWin32') {
+            throw "OpenSSL MSVC builds require native Windows Perl; found $perlPlatform at $nativePerl"
+          }
+          & $nativePerl -MLocale::Maketext::Simple -MIPC::Cmd -e 'print "OpenSSL Perl prerequisites OK\n"'
+          if ($LASTEXITCODE -ne 0) { throw 'Required OpenSSL Perl modules are unavailable' }
+          "OPENSSL_SRC_PERL=$nativePerl" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PERL=$nativePerl" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Output "OpenSSL will use $nativePerl"
       - name: Install frontend dependencies
         working-directory: desktop
         run: pnpm install --frozen-lockfile
       - name: Build desktop installers with embedded OpenSSL
+        if: runner.os != 'Windows'
         working-directory: desktop
         shell: bash
         env:
@@ -164,6 +198,11 @@ jobs:
           APPLE_SIGNING_IDENTITY: '-'
           NO_STRIP: 'true'
         run: pnpm tauri build --ci --target "$RELEASE_TARGET" --bundles "$RELEASE_BUNDLES" -- --locked
+      - name: Build Windows desktop installer with embedded OpenSSL
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        shell: pwsh
+        run: pnpm tauri build --ci --target "$env:RELEASE_TARGET" --bundles "$env:RELEASE_BUNDLES" -- --locked
       - name: Verify embedded Windows elevation manifest
         if: runner.os == 'Windows'
         shell: pwsh
