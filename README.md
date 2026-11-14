@@ -39,7 +39,7 @@ cargo build --release --locked --features openssl-tls
 
 源码构建需要 Perl、C 编译工具；Windows MSVC 还需要 NASM。首次编译 OpenSSL 可能耗时数分钟。
 
-发布产物使用 openssl-vendored：从锁定的依赖源码构建 OpenSSL 并静态链接到程序，目标机器无需安装 OpenSSL 或随包携带 libssl/libcrypto 动态库。CI 的 release 构建也使用该 feature。普通 cargo build 仍使用不含 OpenSSL 的默认配置；openssl-tls 则使用构建环境中发现的库，具体静态/动态链接取决于构建环境，不作为标准发布方式。Windows 的 wintun.dll 仍需单独随应用提供。
+发布产物使用 openssl-vendored：从锁定的依赖源码构建 OpenSSL 并静态链接到程序，目标机器无需安装 OpenSSL 或随包携带 libssl/libcrypto 动态库。tag 发布工作流也使用该 feature。普通 cargo build 仍使用不含 OpenSSL 的默认配置；openssl-tls 则使用构建环境中发现的库，具体静态/动态链接取决于构建环境，不作为标准发布方式。Windows 的 wintun.dll 仍需单独随应用提供。
 
 兼容构建仍默认使用 Rustls。通过 --tls-backend openssl 或 TOML 的 tls-backend = "openssl" 显式选择；该兼容配置只发送 TLS 1.2 ClientHello，允许 OpenSSL DEFAULT 套件，并保持证书验证。可用 --openssl-ciphers AES128-SHA 限定套件。
 
@@ -235,6 +235,10 @@ sudo -E env ARRAYSSLVPN_PRIVILEGED_TEST=1 cargo test --test system_network -- --
 三平台原生 CI 配置位于 [.github/workflows/ci.yml](.github/workflows/ci.yml)。当前验证包括 Windows 编译、模拟测试及旧版 Array 网关的 TLS 1.2/AES128-SHA 握手；使用者已在本机验证真实网关连接通过。Linux/macOS 原生 CI、真实 TUN/DNS 的独立集成检查及长期稳定性仍待验证。
 
 真实网关联调建议先用 `--authenticate -vv` 确认 TLS/登录，再连接并检查内网 IP、内网域名、持续传输、断网重连及退出后的路由/DNS 恢复。报错时可分享脱敏日志，无需提供密码/Cookie。
+
+## 发布
+
+桌面客户端和命令行程序统一在推送 `v*` 版本 tag 时打包并上传到同一个 GitHub Release；普通分支推送和 PR 只运行检查，不生成安装包或发布 Release。仅在明确要求发布新版时递增版本并推送 tag，流程与平台产物见 [发布说明](docs/releasing.md)。
 
 ## 协议依据与许可证
 

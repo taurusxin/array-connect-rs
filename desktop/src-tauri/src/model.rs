@@ -54,6 +54,14 @@ pub struct Profile {
 }
 
 impl Profile {
+    pub fn normalize_server(&mut self) -> Result<(), String> {
+        self.server = ClientConfig::new(self.server.trim(), arraysslvpn::AuthConfig::None)
+            .map_err(|error| error.to_string())?
+            .server
+            .to_string();
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         uuid::Uuid::parse_str(&self.id).map_err(|_| "配置 ID 无效")?;
         if self.name.trim().is_empty() || self.name.len() > 120 || self.username.trim().is_empty() {
@@ -117,17 +125,66 @@ impl Drop for SecretUpdates {
     }
 }
 
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CloseBehavior {
+    #[default]
+    Ask,
+    Tray,
+    Exit,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CloseChoice {
+    Tray,
+    Exit,
+}
+impl From<CloseChoice> for CloseBehavior {
+    fn from(choice: CloseChoice) -> Self {
+        match choice {
+            CloseChoice::Tray => Self::Tray,
+            CloseChoice::Exit => Self::Exit,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase", from = "StoredPreferences")]
 pub struct Preferences {
     pub theme: String,
     pub log_level: String,
+    pub close_behavior: CloseBehavior,
+}
+// Accept the earlier two-switch format, but start with the corrected close dialog.
+// A legacy confirmExit=false must never suppress the connected-exit warning.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredPreferences {
+    theme: String,
+    log_level: String,
+    #[serde(default)]
+    close_behavior: CloseBehavior,
+    #[serde(default, rename = "closeToTray")]
+    _legacy_close_to_tray: Option<bool>,
+    #[serde(default, rename = "confirmExit")]
+    _legacy_confirm_exit: Option<bool>,
+}
+impl From<StoredPreferences> for Preferences {
+    fn from(value: StoredPreferences) -> Self {
+        Self {
+            theme: value.theme,
+            log_level: value.log_level,
+            close_behavior: value.close_behavior,
+        }
+    }
 }
 impl Default for Preferences {
     fn default() -> Self {
         Self {
             theme: "system".into(),
             log_level: "info".into(),
+            close_behavior: CloseBehavior::Ask,
         }
     }
 }
@@ -202,4 +259,57 @@ pub struct Usage {
     pub connected_seconds: u64,
     pub sessions: u64,
     pub recent: Vec<HistoryItem>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn existing_preferences_gain_safe_close_defaults() {
+        let preferences: Preferences =
+            serde_json::from_str(r#"{"theme":"dark","logLevel":"debug"}"#).unwrap();
+        assert_eq!(preferences.close_behavior, CloseBehavior::Ask);
+        assert_eq!(preferences.theme, "dark");
+    }
+    #[test]
+    fn old_exit_switch_cannot_disable_the_new_connection_warning() {
+        let preferences: Preferences = serde_json::from_str(
+            r#"{"theme":"dark","logLevel":"info","closeToTray":true,"confirmExit":false}"#,
+        )
+        .unwrap();
+        assert_eq!(preferences.close_behavior, CloseBehavior::Ask);
+        let stored = serde_json::to_value(&preferences).unwrap();
+        assert!(stored.get("confirmExit").is_none());
+        assert!(stored.get("closeToTray").is_none());
+    }
+    #[test]
+    fn remembered_close_choice_survives_a_preferences_round_trip() {
+        for close_behavior in [CloseBehavior::Ask, CloseBehavior::Tray, CloseBehavior::Exit] {
+            let preferences = Preferences {
+                close_behavior,
+                ..Default::default()
+            };
+            let stored = serde_json::to_string(&preferences).unwrap();
+            let restored: Preferences = serde_json::from_str(&stored).unwrap();
+            assert_eq!(restored.close_behavior, close_behavior);
+        }
+    }
+    #[test]
+    fn gateway_shorthand_normalizes_to_https_and_defaults_to_443() {
+        for (input, host, port) in [
+            ("vpn.example.test", "vpn.example.test", 443),
+            (" 192.0.2.1 ", "192.0.2.1", 443),
+            ("192.0.2.1:8443", "192.0.2.1", 8443),
+            ("https://vpn.example.test:9443", "vpn.example.test", 9443),
+        ] {
+            let mut profile: Profile =
+                serde_json::from_str(include_str!("../../fixtures/profile.json")).unwrap();
+            profile.server = input.into();
+            profile.normalize_server().unwrap();
+            let url = url::Url::parse(&profile.server).unwrap();
+            assert_eq!(url.scheme(), "https");
+            assert_eq!(url.host_str(), Some(host));
+            assert_eq!(url.port_or_known_default(), Some(port));
+        }
+    }
 }

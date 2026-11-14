@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   Sun,
   Terminal,
+  PanelBottomClose,
 } from "lucide-react";
 import { Choice, ToggleRow } from "@/components/fields";
 import { useApp } from "@/stores/app";
@@ -91,11 +92,44 @@ export function Preferences() {
         <ToggleRow
           icon={<Power size={18} />}
           label="开机自启"
-          hint="登录系统后自动启动 Array Connect，不会自动连接 VPN。"
+          hint={
+            app.autostartError ??
+            (app.platform === "windows"
+              ? "使用当前用户的交互式计划任务，以管理员权限启动，不会自动连接 VPN。"
+              : "登录系统后自动启动 Array Connect，不会自动连接 VPN。")
+          }
           checked={app.autostart}
           onChange={(value) => void app.setAutostart(value)}
-          disabled={app.busy}
+          disabled={app.busy || app.autostartError !== null}
         />
+        <div className="setting-select-row">
+          <span className="setting-icon">
+            <PanelBottomClose size={18} />
+          </span>
+          <div>
+            <h3>关闭窗口时</h3>
+            <p>
+              可修改已记住的选择。退出应用时若连接尚未结束，始终确认是否断开。
+            </p>
+          </div>
+          <Choice
+            label="关闭方式"
+            value={app.preferences.closeBehavior}
+            onChange={(value) =>
+              void app.setPreferences({
+                ...app.preferences,
+                closeBehavior: value as Settings["closeBehavior"],
+              })
+            }
+            options={[
+              ["ask", "每次询问（默认）"],
+              ...(app.trayAvailable
+                ? [["tray", "最小化到托盘"] as [string, string]]
+                : []),
+              ["exit", "退出程序"],
+            ]}
+          />
+        </div>
         <div className="setting-select-row">
           <span className="setting-icon">
             <Terminal size={18} />

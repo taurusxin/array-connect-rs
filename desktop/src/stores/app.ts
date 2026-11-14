@@ -4,7 +4,9 @@ import { command, native } from "@/lib/api";
 import {
   emptySession,
   type Bootstrap,
+  type CloseChoice,
   type CredentialRequest,
+  type ExitState,
   type LiveSession,
   type LogRecord,
   type Preferences,
@@ -27,6 +29,9 @@ type Store = {
   samples: RatePoint[];
   usage: Usage;
   autostart: boolean;
+  autostartError: string | null;
+  trayAvailable: boolean;
+  exitState: ExitState;
   administrator: boolean;
   wintunAvailable: boolean;
   storagePath: string;
@@ -49,10 +54,19 @@ type Store = {
   setPreferences: (preferences: Preferences) => Promise<void>;
   setAutostart: (enabled: boolean) => Promise<void>;
   clearLogs: () => Promise<void>;
+  requestExit: () => Promise<void>;
+  chooseClose: (choice: CloseChoice, remember: boolean) => Promise<boolean>;
+  confirmExit: () => Promise<void>;
+  cancelExit: () => Promise<void>;
 };
 let initialization: Promise<void> | null = null;
 let sessionRevision = 0;
 let credentialRevision = 0;
+let exitRevision = 0;
+let preferenceRevision = 0;
+let preferencePending = 0;
+let preferenceQueue = Promise.resolve();
+let confirmedPreferences: Preferences;
 const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
@@ -61,7 +75,11 @@ export const useApp = create<Store>((set, get) => ({
   page: "overview",
   profiles: [],
   selectedId: null,
-  preferences: { theme: "system", logLevel: "info" },
+  preferences: {
+    theme: "system",
+    logLevel: "info",
+    closeBehavior: "ask",
+  },
   session: emptySession,
   credentialRequest: null,
   logs: [],
@@ -74,16 +92,26 @@ export const useApp = create<Store>((set, get) => ({
     recent: [],
   },
   autostart: false,
+  autostartError: null,
+  trayAvailable: false,
+  exitState: "idle",
   administrator: false,
   wintunAvailable: true,
   storagePath: "",
   platform: "",
-  version: "0.1.0",
+  version: "0.1.1",
   busy: false,
   error: null,
   notice: null,
   setPage: (page) => set({ page }),
-  select: (id) => set({ selectedId: id, page: "overview" }),
+  select: (id) => {
+    if (
+      get().session.state !== "Disconnected" &&
+      get().session.profileId !== id
+    )
+      return;
+    set({ selectedId: id, page: "overview" });
+  },
   dismiss: () => set({ error: null, notice: null }),
   initialize: () =>
     (initialization ??= (async () => {
@@ -93,6 +121,10 @@ export const useApp = create<Store>((set, get) => ({
       }
       try {
         await Promise.all([
+          listen<ExitState>("app:exit-state", ({ payload }) => {
+            exitRevision++;
+            set({ exitState: payload });
+          }),
           listen<LiveSession>("vpn:session", ({ payload }) => {
             sessionRevision++;
             if (payload.state === "Disconnected") credentialRevision++;
@@ -157,9 +189,19 @@ export const useApp = create<Store>((set, get) => ({
   refresh: async () => {
     const revision = sessionRevision;
     const credentials = credentialRevision;
+    const exit = exitRevision;
+    const preference = preferenceRevision;
+    const preferenceWasPending = preferencePending > 0;
     const data = await command<Bootstrap>("bootstrap");
     set((state) => ({
       ...data,
+      exitState: exit === exitRevision ? data.exitState : state.exitState,
+      preferences:
+        preferenceWasPending ||
+        preferencePending > 0 ||
+        preference !== preferenceRevision
+          ? state.preferences
+          : data.preferences,
       session: revision === sessionRevision ? data.session : state.session,
       credentialRequest:
         credentials === credentialRevision
@@ -237,6 +279,7 @@ export const useApp = create<Store>((set, get) => ({
     if (
       !get().selectedId ||
       get().session.state !== "Disconnected" ||
+      get().exitState !== "idle" ||
       get().busy
     )
       return;
@@ -275,18 +318,35 @@ export const useApp = create<Store>((set, get) => ({
     }
   },
   setPreferences: async (preferences) => {
-    const previous = get().preferences;
+    if (preferencePending === 0) confirmedPreferences = get().preferences;
+    preferencePending++;
+    const revision = ++preferenceRevision;
     set({ preferences });
+    const operation = preferenceQueue.then(() =>
+      command<void>("save_preferences", { preferences }),
+    );
+    preferenceQueue = operation.catch(() => {});
     try {
-      await command("save_preferences", { preferences });
+      await operation;
+      confirmedPreferences = preferences;
     } catch (error) {
-      set({ preferences: previous, error: message(error) });
+      set({
+        ...(revision === preferenceRevision
+          ? { preferences: confirmedPreferences }
+          : {}),
+        error: message(error),
+      });
+    } finally {
+      preferencePending--;
     }
   },
   setAutostart: async (enabled) => {
     set({ busy: true });
     try {
-      set({ autostart: await command<boolean>("set_autostart", { enabled }) });
+      set({
+        autostart: await command<boolean>("set_autostart", { enabled }),
+        autostartError: null,
+      });
     } catch (error) {
       set({ error: message(error) });
     } finally {
@@ -297,6 +357,53 @@ export const useApp = create<Store>((set, get) => ({
     try {
       await command("clear_logs");
       set({ logs: [] });
+    } catch (error) {
+      set({ error: message(error) });
+    }
+  },
+  requestExit: async () => {
+    try {
+      await command("request_exit");
+    } catch (error) {
+      set({ error: message(error) });
+    }
+  },
+  chooseClose: async (choice, remember) => {
+    // Share the preference queue so an earlier save cannot overwrite this choice.
+    if (preferencePending === 0) confirmedPreferences = get().preferences;
+    preferencePending++;
+    const revision = ++preferenceRevision;
+    const operation = preferenceQueue.then(() =>
+      command<Preferences | null>("choose_close", { choice, remember }),
+    );
+    preferenceQueue = operation.then(
+      () => {},
+      () => {},
+    );
+    try {
+      const preferences = await operation;
+      if (preferences) {
+        confirmedPreferences = preferences;
+        if (revision === preferenceRevision) set({ preferences });
+      }
+      return true;
+    } catch (error) {
+      set({ error: message(error) });
+      return false;
+    } finally {
+      preferencePending--;
+    }
+  },
+  confirmExit: async () => {
+    try {
+      await command("confirm_exit");
+    } catch (error) {
+      set({ error: message(error) });
+    }
+  },
+  cancelExit: async () => {
+    try {
+      await command("cancel_exit");
     } catch (error) {
       set({ error: message(error) });
     }

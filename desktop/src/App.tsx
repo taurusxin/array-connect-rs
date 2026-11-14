@@ -10,8 +10,8 @@ import {
   KeyRound,
   LayoutDashboard,
   LoaderCircle,
+  LogOut,
   Minus,
-  Plus,
   Settings2,
   ShieldCheck,
   ShieldAlert,
@@ -32,11 +32,11 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ProfileDialog } from "@/components/profile-dialog";
 import { CredentialsDialog } from "@/components/credentials-dialog";
+import { ExitDialog } from "@/components/exit-dialog";
 import { Overview } from "@/pages/overview";
 import { Profiles } from "@/pages/profiles";
 import { Logs } from "@/pages/logs";
 import { Preferences } from "@/pages/preferences";
-import { host } from "@/lib/format";
 import { native } from "@/lib/api";
 import { stateLabels, type Profile } from "@/lib/types";
 import { useApp } from "@/stores/app";
@@ -54,7 +54,6 @@ export function App() {
     null,
   );
   const [deleting, setDeleting] = useState<Profile | null>(null);
-  const active = app.session.state !== "Disconnected";
   useEffect(() => {
     void app.initialize();
   }, []);
@@ -136,52 +135,6 @@ export function App() {
                 </button>
               ))}
             </nav>
-            <div className="sidebar-profiles">
-              <div className="sidebar-section-heading">
-                <span>我的连接</span>
-                <button
-                  aria-label="添加配置"
-                  onClick={() => setEditor({ profile: null })}
-                >
-                  <Plus size={15} />
-                </button>
-              </div>
-              {app.profiles.length ? (
-                <div className="sidebar-profile-list">
-                  {app.profiles.map((profile) => (
-                    <button
-                      key={profile.id}
-                      disabled={active && app.session.profileId !== profile.id}
-                      className={`sidebar-profile ${app.selectedId === profile.id ? "selected" : ""}`}
-                      onClick={() => app.select(profile.id)}
-                    >
-                      <span
-                        className={
-                          active && app.session.profileId === profile.id
-                            ? "profile-dot connected"
-                            : "profile-dot"
-                        }
-                      />
-                      <span>
-                        <strong>{profile.name}</strong>
-                        <small>{host(profile.server)}</small>
-                      </span>
-                      {app.selectedId === profile.id && (
-                        <ChevronRight size={13} />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <button
-                  className="sidebar-empty"
-                  onClick={() => setEditor({ profile: null })}
-                >
-                  <Plus size={15} />
-                  添加你的第一个连接
-                </button>
-              )}
-            </div>
             <div className="sidebar-bottom">
               <div className="local-security">
                 <span>
@@ -194,6 +147,13 @@ export function App() {
               </div>
               <div className="sidebar-version">
                 <span>v{app.version}</span>
+                <button
+                  title="退出客户端"
+                  aria-label="退出客户端"
+                  onClick={() => void app.requestExit()}
+                >
+                  <LogOut size={14} />
+                </button>
                 <button
                   onClick={() => app.setPage("preferences")}
                   title="关于与设置"
@@ -292,7 +252,7 @@ export function App() {
             onClose={() => setEditor(null)}
           />
         )}
-        {app.credentialRequest && (
+        {app.credentialRequest && app.exitState === "idle" && (
           <CredentialsDialog
             key={app.credentialRequest.id}
             request={app.credentialRequest}
@@ -335,6 +295,7 @@ export function App() {
             </DialogContent>
           </Dialog>
         )}
+        <ExitDialog />
       </div>
     </TooltipProvider>
   );

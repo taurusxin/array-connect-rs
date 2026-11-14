@@ -24,6 +24,7 @@ pub struct Controller {
     pub db: Mutex<Database>,
     pub logs: Arc<LogHub>,
     pub directory: PathBuf,
+    pub lifecycle: Arc<crate::lifecycle::Lifecycle>,
     vault: Arc<dyn SecretStore>,
     configuration: Mutex<()>,
     active: Mutex<Option<Active>>,
@@ -47,12 +48,14 @@ impl Controller {
         db: Database,
         logs: Arc<LogHub>,
         directory: PathBuf,
+        lifecycle: Arc<crate::lifecycle::Lifecycle>,
     ) -> Arc<Self> {
         Arc::new(Self {
             app,
             db: Mutex::new(db),
             logs,
             directory,
+            lifecycle,
             vault: Arc::new(SystemVault),
             configuration: Mutex::new(()),
             active: Mutex::new(None),
@@ -76,6 +79,73 @@ impl Controller {
     pub fn is_active(&self) -> bool {
         self.active.lock().unwrap().is_some()
     }
+    fn ensure_mutable(&self) -> Result<(), String> {
+        if self.lifecycle.closing() {
+            Err("应用正在退出，请等待退出后重新操作".into())
+        } else {
+            Ok(())
+        }
+    }
+    pub async fn wait_for_pending_operations(self: &Arc<Self>) {
+        let owner = self.clone();
+        if let Err(error) = tauri::async_runtime::spawn_blocking(move || {
+            let _configuration = owner.configuration.lock().unwrap();
+            let _database = owner.db.lock().unwrap();
+        })
+        .await
+        {
+            tracing::warn!(%error, "waiting for pending writes failed");
+        }
+    }
+    pub fn save_preferences(&self, preferences: &Preferences) -> Result<(), String> {
+        let _operation = self.configuration.lock().unwrap();
+        self.ensure_mutable()?;
+        self.db.lock().unwrap().save_preferences(preferences)?;
+        self.logs.set_level(&preferences.log_level);
+        self.lifecycle.update(preferences);
+        Ok(())
+    }
+    pub fn choose_close(
+        &self,
+        choice: CloseChoice,
+        remember: bool,
+    ) -> Result<Option<Preferences>, String> {
+        let _operation = self.configuration.lock().unwrap();
+        if !self.lifecycle.begin_close_choice() {
+            return Err("关闭选择已结束，请重新操作".into());
+        }
+        let result = (|| {
+            if matches!(choice, CloseChoice::Tray) && !self.lifecycle.tray_available() {
+                return Err("系统托盘不可用，请选择退出或取消关闭".into());
+            }
+            let preferences = if remember {
+                let database = self.db.lock().unwrap();
+                let mut preferences = database.preferences()?;
+                preferences.close_behavior = choice.into();
+                database.save_preferences(&preferences)?;
+                self.lifecycle.update(&preferences);
+                Some(preferences)
+            } else {
+                None
+            };
+            self.lifecycle.finish_close_choice(&self.app, choice)?;
+            Ok(preferences)
+        })();
+        if result.is_err() {
+            self.lifecycle.restore_close_choice(&self.app);
+        }
+        result
+    }
+    pub fn autostart_enabled(&self) -> Result<bool, String> {
+        let _operation = self.configuration.lock().unwrap();
+        self.ensure_mutable()?;
+        crate::autostart::is_enabled(&self.app)
+    }
+    pub fn set_autostart(&self, enabled: bool) -> Result<bool, String> {
+        let _operation = self.configuration.lock().unwrap();
+        self.ensure_mutable()?;
+        crate::autostart::set_enabled(&self.app, enabled)
+    }
     fn check_editable(&self, profile: &str) -> Result<(), String> {
         if self
             .active
@@ -95,7 +165,9 @@ impl Controller {
         mut updates: SecretUpdates,
     ) -> Result<Vec<Profile>, String> {
         let _operation = self.configuration.lock().unwrap();
+        self.ensure_mutable()?;
         self.check_editable(&profile.id)?;
+        profile.normalize_server()?;
         profile.validate()?;
         let password = updates.password.take().map(Zeroizing::new);
         let seed = updates.totp_secret.take().map(Zeroizing::new);
@@ -147,6 +219,7 @@ impl Controller {
     }
     pub fn delete_profile(&self, id: &str) -> Result<Vec<Profile>, String> {
         let _operation = self.configuration.lock().unwrap();
+        self.ensure_mutable()?;
         self.check_editable(id)?;
         self.db.lock().unwrap().profile(id)?;
         vault::transaction(
@@ -159,6 +232,9 @@ impl Controller {
     }
     fn remember_password(&self, id: &str, password: &SecretString) -> Result<(), String> {
         let _operation = self.configuration.lock().unwrap();
+        if self.lifecycle.closing() {
+            return Ok(());
+        }
         let mut profile = self.db.lock().unwrap().profile(id)?;
         if profile.save_password {
             profile.password_stored = true;
@@ -175,6 +251,9 @@ impl Controller {
     pub fn start(self: &Arc<Self>, id: &str) -> Result<(), String> {
         let _operation = self.configuration.lock().unwrap();
         let mut active = self.active.lock().unwrap();
+        if self.lifecycle.state() != "idle" {
+            return Err("关闭选择、退出确认或清理期间不能开始新的连接".into());
+        }
         if active.is_some() {
             return Err("已有配置正在连接或断开，请等待当前会话结束".into());
         }
@@ -272,6 +351,8 @@ impl Controller {
             state: "Connecting".into(),
             ..Default::default()
         };
+        drop(active);
+        self.lifecycle.refresh_tray(&self.app);
         let _ = self.app.emit("vpn:session", self.snapshot());
         let owner = self.clone();
         tauri::async_runtime::spawn(async move {
@@ -306,6 +387,7 @@ impl Controller {
                         if state == ConnectionState::Connected && connected_since.is_none() { connected_since = Some(Instant::now()); }
                         if state != ConnectionState::Connected && let Some(start) = connected_since.take() { elapsed += start.elapsed(); }
                         self.snapshot.lock().unwrap().state = if state == ConnectionState::Disconnected { "Disconnecting".into() } else { format!("{state:?}") };
+                        self.lifecycle.refresh_tray(&self.app);
                         let _ = self.app.emit("vpn:session", self.snapshot());
                     }
                     Ok(ClientEvent::NetworkConfigured(network)) => { self.snapshot.lock().unwrap().network = Some(network); }
@@ -315,6 +397,7 @@ impl Controller {
                         if state == ConnectionState::Connected && connected_since.is_none() { connected_since = Some(Instant::now()); }
                         if state != ConnectionState::Connected && let Some(start) = connected_since.take() { elapsed += start.elapsed(); }
                         self.snapshot.lock().unwrap().state = if state == ConnectionState::Disconnected { "Disconnecting".into() } else { format!("{state:?}") };
+                        self.lifecycle.refresh_tray(&self.app);
                     }
                     _ => {}
                 },
@@ -368,6 +451,8 @@ impl Controller {
             let _ = self.app.emit("vpn:history-changed", ());
             self.logs.clear_secrets();
         }
+        drop(active);
+        self.lifecycle.refresh_tray(&self.app);
         let _ = done.send(true);
     }
     pub async fn disconnect(&self) {

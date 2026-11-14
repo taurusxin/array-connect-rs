@@ -45,7 +45,10 @@ export type SecretUpdates = {
 export type Preferences = {
   theme: "system" | "light" | "dark";
   logLevel: "error" | "warn" | "info" | "debug" | "trace";
+  closeBehavior: "ask" | "tray" | "exit";
 };
+export type CloseChoice = "tray" | "exit";
+export type ExitState = "idle" | "choose" | "checking" | "confirm" | "closing";
 export type Stats = {
   bytes_sent: number;
   bytes_received: number;
@@ -112,11 +115,14 @@ export type Bootstrap = {
   logs: LogRecord[];
   usage: Usage;
   autostart: boolean;
+  autostartError: string | null;
   administrator: boolean;
   wintunAvailable: boolean;
   storagePath: string;
   platform: string;
   version: string;
+  trayAvailable: boolean;
+  exitState: ExitState;
 };
 export type RatePoint = { time: number; download: number; upload: number };
 

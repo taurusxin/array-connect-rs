@@ -53,18 +53,20 @@ export function Choice({
   onChange,
   options,
   hint,
+  disabled,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: [string, string][];
   hint?: string;
+  disabled?: boolean;
 }) {
   const id = useId();
   return (
     <div className="field">
       <Label htmlFor={id}>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger id={id} className="w-full">
           <SelectValue />
         </SelectTrigger>

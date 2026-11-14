@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RateChart } from "@/components/rate-chart";
+import { Choice } from "@/components/fields";
 import { useApp } from "@/stores/app";
 import { bytes, date, duration, host } from "@/lib/format";
 import { emptySession, stateLabels, type Profile } from "@/lib/types";
@@ -48,10 +49,29 @@ export function Overview({
           <h1>连接概览</h1>
           <p>连接你的网络，让工作顺畅进行。</p>
         </div>
-        <Button variant="outline" onClick={() => edit(null)}>
-          <Plus />
-          新建配置
-        </Button>
+        <div className="overview-header-actions">
+          {app.profiles.length > 0 && (
+            <div
+              className="overview-profile-picker"
+              title={active ? "断开连接后可切换配置" : undefined}
+            >
+              <Choice
+                label="当前配置"
+                value={profile?.id ?? ""}
+                onChange={app.select}
+                disabled={active || app.busy}
+                options={app.profiles.map((p) => [
+                  p.id,
+                  `${p.name} · ${host(p.server)}`,
+                ])}
+              />
+            </div>
+          )}
+          <Button variant="outline" onClick={() => edit(null)}>
+            <Plus />
+            新建配置
+          </Button>
+        </div>
       </header>
       {!profile ? (
         <section className="empty-welcome panel">

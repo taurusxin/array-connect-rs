@@ -2,7 +2,6 @@ use crate::{connection::Controller, logging::LogRecord, model::*};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
-use tauri_plugin_autostart::ManagerExt;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,11 +13,14 @@ pub struct Bootstrap {
     logs: Vec<LogRecord>,
     usage: Usage,
     autostart: bool,
+    autostart_error: Option<String>,
     administrator: bool,
     wintun_available: bool,
     storage_path: String,
     platform: String,
     version: String,
+    tray_available: bool,
+    exit_state: String,
 }
 
 #[tauri::command]
@@ -28,6 +30,13 @@ pub async fn bootstrap(state: State<'_, Arc<Controller>>) -> Result<Bootstrap, S
         let profiles = state.db.lock().unwrap().profiles()?;
         let preferences = state.db.lock().unwrap().preferences()?;
         let usage = state.db.lock().unwrap().usage()?;
+        let (autostart, autostart_error) = match state.autostart_enabled() {
+            Ok(enabled) => (enabled, None),
+            Err(error) => {
+                tracing::warn!(%error, "could not read autostart settings");
+                (false, Some(error))
+            }
+        };
         Ok(Bootstrap {
             profiles,
             preferences,
@@ -35,16 +44,15 @@ pub async fn bootstrap(state: State<'_, Arc<Controller>>) -> Result<Bootstrap, S
             credential_request: state.credential_request(),
             logs: state.logs.all(),
             usage,
-            autostart: state
-                .app
-                .autolaunch()
-                .is_enabled()
-                .map_err(|_| "开机自启状态读取失败")?,
+            autostart,
+            autostart_error,
             administrator: crate::platform::administrator(),
             wintun_available: crate::platform::wintun_available(),
             storage_path: state.directory.display().to_string(),
             platform: std::env::consts::OS.into(),
             version: env!("CARGO_PKG_VERSION").into(),
+            tray_available: state.lifecycle.tray_available(),
+            exit_state: state.lifecycle.state().into(),
         })
     })
     .await
@@ -96,33 +104,19 @@ pub async fn save_preferences(
     preferences: Preferences,
 ) -> Result<(), String> {
     let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        state.db.lock().unwrap().save_preferences(&preferences)?;
-        state.logs.set_level(&preferences.log_level);
-        Ok(())
-    })
-    .await
-    .map_err(|_| "偏好保存任务失败")?
+    tauri::async_runtime::spawn_blocking(move || state.save_preferences(&preferences))
+        .await
+        .map_err(|_| "偏好保存任务失败")?
 }
 #[tauri::command]
 pub async fn set_autostart(
     state: State<'_, Arc<Controller>>,
     enabled: bool,
 ) -> Result<bool, String> {
-    let app = state.app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        if enabled {
-            app.autolaunch().enable()
-        } else {
-            app.autolaunch().disable()
-        }
-        .map_err(|_| "开机自启设置失败")?;
-        app.autolaunch()
-            .is_enabled()
-            .map_err(|_| "无法确认开机自启状态".into())
-    })
-    .await
-    .map_err(|_| "开机自启任务失败")?
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.set_autostart(enabled))
+        .await
+        .map_err(|_| "开机自启任务失败")?
 }
 #[tauri::command]
 pub async fn usage(state: State<'_, Arc<Controller>>) -> Result<Usage, String> {
@@ -134,4 +128,28 @@ pub async fn usage(state: State<'_, Arc<Controller>>) -> Result<Usage, String> {
 #[tauri::command]
 pub fn clear_logs(state: State<'_, Arc<Controller>>) {
     state.logs.clear();
+}
+
+#[tauri::command]
+pub async fn choose_close(
+    state: State<'_, Arc<Controller>>,
+    choice: CloseChoice,
+    remember: bool,
+) -> Result<Option<Preferences>, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.choose_close(choice, remember))
+        .await
+        .map_err(|_| "关闭选择任务失败")?
+}
+#[tauri::command]
+pub fn request_exit(state: State<'_, Arc<Controller>>) {
+    state.lifecycle.request_exit(&state.app);
+}
+#[tauri::command]
+pub fn confirm_exit(state: State<'_, Arc<Controller>>) {
+    state.lifecycle.confirm(&state.app);
+}
+#[tauri::command]
+pub fn cancel_exit(state: State<'_, Arc<Controller>>) {
+    state.lifecycle.cancel(&state.app);
 }

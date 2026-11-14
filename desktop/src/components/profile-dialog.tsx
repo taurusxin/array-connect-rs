@@ -141,7 +141,8 @@ export function ProfileDialog({
                     label="网关地址"
                     value={draft.server}
                     onChange={(v) => update("server", v)}
-                    placeholder="https://vpn.example.com:443"
+                    placeholder="vpn.example.com 或 192.0.2.1"
+                    hint="无需输入 https://；不指定端口时默认使用 443，也支持主机:端口。"
                   />
                   <TextField
                     label="用户名"

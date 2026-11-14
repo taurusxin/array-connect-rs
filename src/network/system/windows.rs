@@ -18,17 +18,31 @@ pub struct Platform {
 // Snapshots own Rust strings, never borrowed pointers returned by Windows.
 struct DnsSnapshot {
     guid: GUID,
-    flags: u64,
     nameservers: Vec<u16>,
     search: Vec<u16>,
 }
 
-fn check(code: u32) -> Result<()> {
+impl DnsSnapshot {
+    fn restore_settings(&mut self) -> DNS_INTERFACE_SETTINGS {
+        // A selected field must point to a NUL-terminated string. An empty
+        // string clears the override (including restoring automatic DNS);
+        // a NULL pointer with that field's flag set is invalid (ERROR 87).
+        DNS_INTERFACE_SETTINGS {
+            Version: DNS_INTERFACE_SETTINGS_VERSION1,
+            Flags: (DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST) as u64,
+            NameServer: self.nameservers.as_mut_ptr(),
+            SearchList: self.search.as_mut_ptr(),
+            ..Default::default()
+        }
+    }
+}
+
+fn check(operation: &str, code: u32) -> Result<()> {
     if code == 0 {
         Ok(())
     } else {
         Err(VpnError::Network(format!(
-            "Windows IP Helper: {}",
+            "Windows {operation}: {}",
             std::io::Error::from_raw_os_error(code as i32)
         )))
     }
@@ -121,7 +135,7 @@ impl Platform {
         if config.manage_dns && !settings.dns_servers.is_empty() {
             let luid = device.if_luid()?;
             let mut guid = GUID::from_u128(0);
-            check(unsafe {
+            check("ConvertInterfaceLuidToGuid", unsafe {
                 ConvertInterfaceLuidToGuid(
                     std::ptr::from_ref(&luid).cast::<NET_LUID_LH>(),
                     &mut guid,
@@ -131,13 +145,22 @@ impl Platform {
                 Version: DNS_INTERFACE_SETTINGS_VERSION1,
                 ..Default::default()
             };
-            check(unsafe { GetInterfaceDnsSettings(guid, &mut old) })?;
+            check("GetInterfaceDnsSettings", unsafe {
+                GetInterfaceDnsSettings(guid, &mut old)
+            })?;
             let snapshot = unsafe {
                 DnsSnapshot {
                     guid,
-                    flags: old.Flags,
-                    nameservers: copy_wide(old.NameServer),
-                    search: copy_wide(old.SearchList),
+                    nameservers: if old.Flags & DNS_SETTING_NAMESERVER as u64 != 0 {
+                        copy_wide(old.NameServer)
+                    } else {
+                        wide("")
+                    },
+                    search: if old.Flags & DNS_SETTING_SEARCHLIST as u64 != 0 {
+                        copy_wide(old.SearchList)
+                    } else {
+                        wide("")
+                    },
                 }
             };
             unsafe { FreeInterfaceDnsSettings(&mut old) };
@@ -158,31 +181,22 @@ impl Platform {
                 SearchList: search.as_mut_ptr(),
                 ..Default::default()
             };
-            check(unsafe { SetInterfaceDnsSettings(guid, &new) })?;
+            check("SetInterfaceDnsSettings(apply)", unsafe {
+                SetInterfaceDnsSettings(guid, &new)
+            })?;
         }
         Ok(())
     }
     pub fn cleanup(&mut self) -> Result<()> {
         let mut errors = vec![];
         if let Some(snapshot) = &mut self.dns {
-            let old = DNS_INTERFACE_SETTINGS {
-                Version: DNS_INTERFACE_SETTINGS_VERSION1,
-                Flags: (DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST) as u64,
-                NameServer: if snapshot.flags & DNS_SETTING_NAMESERVER as u64 != 0 {
-                    snapshot.nameservers.as_mut_ptr()
-                } else {
-                    std::ptr::null_mut()
-                },
-                SearchList: if snapshot.flags & DNS_SETTING_SEARCHLIST as u64 != 0 {
-                    snapshot.search.as_mut_ptr()
-                } else {
-                    std::ptr::null_mut()
-                },
-                ..Default::default()
-            };
-            match check(unsafe { SetInterfaceDnsSettings(snapshot.guid, &old) }) {
+            let old = snapshot.restore_settings();
+            match check("SetInterfaceDnsSettings(restore)", unsafe {
+                SetInterfaceDnsSettings(snapshot.guid, &old)
+            }) {
                 Ok(()) => self.dns = None,
-                Err(e) => errors.push(e.to_string()),
+                Err(VpnError::Network(reason)) => errors.push(reason),
+                Err(error) => errors.push(error.to_string()),
             }
         }
         let mut failed = vec![];
@@ -201,5 +215,46 @@ impl Platform {
         } else {
             Err(VpnError::Network(errors.join("; ")))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restoring_automatic_dns_uses_empty_strings_for_selected_fields() {
+        let mut snapshot = DnsSnapshot {
+            guid: GUID::from_u128(0),
+            nameservers: wide(""),
+            search: wide(""),
+        };
+        let settings = snapshot.restore_settings();
+        assert_eq!(
+            settings.Flags,
+            (DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST) as u64
+        );
+        assert!(!settings.NameServer.is_null());
+        assert!(!settings.SearchList.is_null());
+        assert_eq!(unsafe { *settings.NameServer }, 0);
+        assert_eq!(unsafe { *settings.SearchList }, 0);
+    }
+
+    #[test]
+    fn restoring_static_dns_preserves_owned_utf16_buffers() {
+        let mut snapshot = DnsSnapshot {
+            guid: GUID::from_u128(0),
+            nameservers: wide("10.0.0.53,10.0.0.54"),
+            search: wide("corp.example,研发.example"),
+        };
+        let settings = snapshot.restore_settings();
+        assert_eq!(
+            unsafe { copy_wide(settings.NameServer) },
+            wide("10.0.0.53,10.0.0.54")
+        );
+        assert_eq!(
+            unsafe { copy_wide(settings.SearchList) },
+            wide("corp.example,研发.example")
+        );
     }
 }

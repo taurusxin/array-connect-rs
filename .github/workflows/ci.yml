@@ -1,10 +1,23 @@
 name: CI
 on:
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  release-tools:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -B -m unittest discover -s .github/scripts -p 'test_*.py'
+
   test:
     strategy:
       fail-fast: false
@@ -31,8 +44,6 @@ jobs:
       - run: cargo test --locked --all-targets --features openssl-vendored
       - run: cargo test --locked --no-default-features
       - run: cargo check --locked --no-default-features --features system-network --all-targets
-      - name: Build release with embedded OpenSSL compatibility backend
-        run: cargo build --locked --release --features openssl-vendored
       - name: Verify default build has no OpenSSL or native-tls backend
         shell: bash
         run: |
