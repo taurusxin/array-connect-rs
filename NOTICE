@@ -1,0 +1,12 @@
+Array wire constants and protocol behavior are adapted from OpenConnect:
+  https://gitlab.com/openconnect/openconnect
+  local reference commit: 70d1e79d1e55849dfc71dcc199b1edb535b547e4
+  array.c, Copyright 2020 David Woodhouse <dwmw2@infradead.org>
+
+The bounded JSON trailer transition handling also follows:
+  https://github.com/taurusxin/array-vpn-go/blob/main/internal/protocol/wire.go
+  (LGPL-2.1, adapted from OpenConnect).
+
+This project is distributed under LGPL-2.1-only. See LICENSE.
+Third-party dependencies retain their own licenses.
+Wintun is a separate, unmodified driver/DLL dependency and is not bundled here.

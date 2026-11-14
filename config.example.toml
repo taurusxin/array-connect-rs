@@ -1,0 +1,27 @@
+# CLI arguments override these values. Keep passwords out of config files.
+server = "https://vpn.example.com"
+user = "your-user"
+authgroup = ""
+connect-timeout = 30
+reconnect-timeout = 300
+# dpd = 30                 # default: server interval, otherwise 30 seconds
+mtu = 1400
+route-mode = "server"      # server | full | none
+no-dns = false
+routes = []
+exclude-routes = []
+log-level = "info"
+log-format = "text"        # text | json
+tls-backend = "rustls"     # rustls | openssl (optional feature, TLS 1.2 compatibility)
+# openssl-ciphers = "DEFAULT" # e.g. AES128-SHA; only used with the OpenSSL backend
+# log-file = "arraysslvpn.log"
+# port = 443
+# cafile = "company-ca.pem"
+# servercert = ["pin-sha256:BASE64_SHA256_SPKI"]
+# insecure = false
+# proxy = "socks5://127.0.0.1:1080"
+# resolve = "203.0.113.10"
+# hostname = "my-computer"
+# useragent = "arraysslvpn/0.1.0"
+# interface = "arrayvpn"   # macOS: an unused utunN name, or omit
+# cookie-file = "session.cookie" # remove user/authgroup when using Cookie auth
