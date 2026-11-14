@@ -638,9 +638,14 @@ struct DeferredPassword {
     calls: AtomicUsize,
     wait: Option<Arc<Notify>>,
     delay: Duration,
+    cache: bool,
 }
 #[async_trait]
 impl arraysslvpn::PasswordProvider for DeferredPassword {
+    fn cache_password(&self) -> bool {
+        self.cache
+    }
+
     async fn password(
         &self,
         challenge: arraysslvpn::PasswordChallenge,
@@ -661,6 +666,7 @@ fn deferred(mock: &Mock, delay: Duration, wait: Option<Arc<Notify>>) -> Arc<Defe
         calls: AtomicUsize::new(0),
         delay,
         wait,
+        cache: true,
     })
 }
 fn deferred_config(mock: &Mock, provider: Arc<DeferredPassword>) -> ClientConfig {
@@ -757,12 +763,22 @@ async fn deferred_password_can_be_cancelled_without_http() {
 
 #[tokio::test]
 async fn reconnect_reuses_the_deferred_password_in_memory() {
+    verify_deferred_reauthentication(true).await;
+}
+
+#[tokio::test]
+async fn reconnect_requests_fresh_one_time_credentials() {
+    verify_deferred_reauthentication(false).await;
+}
+
+async fn verify_deferred_reauthentication(cache: bool) {
     let mock = Mock::start(Options {
         reconnect: true,
         ..Default::default()
     })
     .await;
-    let provider = deferred(&mock, Duration::ZERO, None);
+    let mut provider = deferred(&mock, Duration::ZERO, None);
+    Arc::get_mut(&mut provider).unwrap().cache = cache;
     let client = VpnClient::new(deferred_config(&mock, provider.clone())).unwrap();
     let handle = client.handle();
     let (network, send, mut receive, _) = memory();
@@ -780,7 +796,10 @@ async fn reconnect_reuses_the_deferred_password_in_memory() {
     handle.disconnect();
     task.await.unwrap().unwrap();
     assert_eq!(mock.logins.load(Ordering::SeqCst), 2);
-    assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        provider.calls.load(Ordering::SeqCst),
+        if cache { 1 } else { 2 }
+    );
 }
 
 #[cfg(feature = "openssl-tls")]

@@ -21,7 +21,9 @@ DTLS、完整 IPv6 网络配置、OTP/MFA、浏览器 SSO 和后台提权服务�
 
 ## 仓库结构
 
-源码按职责划分为 `src/auth`、`src/client`、`src/protocol`、`src/transport` 和 `src/network`；CLI 位于 `src/bin/arraysslvpn`。项目仍为单个 Cargo package，公共 API 由 `src/lib.rs` 统一导出。完整目录与职责见 [代码结构说明](docs/architecture.md)。
+源码按职责划分为 `src/auth`、`src/client`、`src/protocol`、`src/transport` 和 `src/network`；CLI 位于 `src/bin/arraysslvpn`。VPN 库与 CLI 保持单个 Cargo package，公共 API 由 `src/lib.rs` 统一导出。完整目录与职责见 [代码结构说明](docs/architecture.md)。
+
+Tauri 2 桌面客户端位于 [desktop](desktop/README.md)，作为独立应用 package 通过路径依赖接入本库，提供 Nova 界面、多配置、系统密钥库、自动 2FA、实时日志与 SQLite 流量统计。
 
 ## 旧网关的可选 OpenSSL 后端
 

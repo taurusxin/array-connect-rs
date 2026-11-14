@@ -152,7 +152,9 @@ impl AuthSession {
                     if shared.cancel.is_cancelled() {
                         return Err(VpnError::Cancelled);
                     }
-                    self.password_cache = Some(password.clone());
+                    if provider.cache_password() {
+                        self.password_cache = Some(password.clone());
+                    }
                     shared.set_state(ConnectionState::Authenticating);
                     password
                 }

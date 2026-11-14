@@ -2,3 +2,11 @@
 *.log
 /config.local.toml
 /wintun.dll
+/desktop/node_modules/
+/desktop/dist/
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/
+/desktop/test-results/
+/desktop/playwright-report/
+/desktop/src-tauri/resources/wintun.dll
+/desktop/*.tsbuildinfo

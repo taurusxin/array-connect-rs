@@ -1,0 +1,14 @@
+Array Connect is part of arraysslvpn, licensed under LGPL-2.1-only.
+
+The components in src/components/ui are adapted from the official shadcn/ui
+radix-nova registry: https://ui.shadcn.com/r/styles/radix-nova/
+Source: https://github.com/shadcn-ui/ui
+These components retain the upstream MIT license (SHADCN-LICENSE).
+Registry icon placeholders are replaced with Lucide React icons.
+
+Lucide icons: https://lucide.dev (ISC license).
+Other dependencies retain their respective licenses.
+
+Windows builds download the official signed Wintun 0.14.1 DLL with its original
+license. See src-tauri/resources/WINTUN-LICENSE.txt after pnpm prepare.
+The DLL is not tracked in this repository.

@@ -1,0 +1,5 @@
+{
+  "bundle": {
+    "resources": { "resources/wintun.dll": "wintun.dll", "resources/WINTUN-LICENSE.txt": "WINTUN-LICENSE.txt" }
+  }
+}
