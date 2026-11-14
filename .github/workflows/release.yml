@@ -85,10 +85,22 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $nativePerl = (Get-Command perl -CommandType Application -ErrorAction Stop).Source
-          $perlPlatform = & $nativePerl -e 'print $^O'
-          if ($LASTEXITCODE -ne 0 -or $perlPlatform -ne 'MSWin32') {
-            throw "OpenSSL MSVC builds require native Windows Perl; found $perlPlatform at $nativePerl"
+          $perlCandidates = @(Get-Command perl -All -CommandType Application -ErrorAction Stop | Select-Object -ExpandProperty Source -Unique)
+          $nativePerl = $null
+          foreach ($candidate in $perlCandidates) {
+            Write-Output "Checking Perl candidate: $candidate"
+            try {
+              $perlPlatform = (& $candidate -e 'print $^O' | Out-String).Trim()
+              if ($LASTEXITCODE -eq 0 -and $perlPlatform -eq 'MSWin32') {
+                $nativePerl = $candidate
+                break
+              }
+            } catch {
+              Write-Warning "Could not probe Perl at ${candidate}: $_"
+            }
+          }
+          if (-not $nativePerl) {
+            throw "No native Windows Perl found. Checked: $($perlCandidates -join '; ')"
           }
           & $nativePerl -MLocale::Maketext::Simple -MIPC::Cmd -e 'print "OpenSSL Perl prerequisites OK\n"'
           if ($LASTEXITCODE -ne 0) { throw 'Required OpenSSL Perl modules are unavailable' }
@@ -176,10 +188,22 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $nativePerl = (Get-Command perl -CommandType Application -ErrorAction Stop).Source
-          $perlPlatform = & $nativePerl -e 'print $^O'
-          if ($LASTEXITCODE -ne 0 -or $perlPlatform -ne 'MSWin32') {
-            throw "OpenSSL MSVC builds require native Windows Perl; found $perlPlatform at $nativePerl"
+          $perlCandidates = @(Get-Command perl -All -CommandType Application -ErrorAction Stop | Select-Object -ExpandProperty Source -Unique)
+          $nativePerl = $null
+          foreach ($candidate in $perlCandidates) {
+            Write-Output "Checking Perl candidate: $candidate"
+            try {
+              $perlPlatform = (& $candidate -e 'print $^O' | Out-String).Trim()
+              if ($LASTEXITCODE -eq 0 -and $perlPlatform -eq 'MSWin32') {
+                $nativePerl = $candidate
+                break
+              }
+            } catch {
+              Write-Warning "Could not probe Perl at ${candidate}: $_"
+            }
+          }
+          if (-not $nativePerl) {
+            throw "No native Windows Perl found. Checked: $($perlCandidates -join '; ')"
           }
           & $nativePerl -MLocale::Maketext::Simple -MIPC::Cmd -e 'print "OpenSSL Perl prerequisites OK\n"'
           if ($LASTEXITCODE -ne 0) { throw 'Required OpenSSL Perl modules are unavailable' }
