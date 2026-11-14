@@ -232,7 +232,7 @@ sudo -E env ARRAYSSLVPN_PRIVILEGED_TEST=1 cargo test --test system_network -- --
 
 该检查创建临时 TUN 和 TEST-NET 路由，验证重复清理，不修改 DNS。DNS 需要配合真实网关手动验收。
 
-三平台原生 CI 配置位于 [.github/workflows/ci.yml](.github/workflows/ci.yml)。当前验证包括 Windows 编译、模拟测试及旧版 Array 网关的 TLS 1.2/AES128-SHA 握手；使用者已在本机验证真实网关连接通过。Linux/macOS 原生 CI、真实 TUN/DNS 的独立集成检查及长期稳定性仍待验证。
+三平台原生 CI 配置位于 [.github/workflows/ci.yml](.github/workflows/ci.yml)，统一检查核心库、CLI、前端和 Tauri 桌面应用。Windows、Linux、macOS 的核心库检查已通过；Linux/macOS 桌面编译及模拟测试已通过。使用者已在本机验证真实网关连接；真实 TUN/DNS 的独立集成检查及长期稳定性仍待验证。
 
 真实网关联调建议先用 `--authenticate -vv` 确认 TLS/登录，再连接并检查内网 IP、内网域名、持续传输、断网重连及退出后的路由/DNS 恢复。报错时可分享脱敏日志，无需提供密码/Cookie。
 

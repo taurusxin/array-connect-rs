@@ -4,11 +4,14 @@
 
 ## 工作流
 
-- `ci.yml`：分支推送、PR 和手动运行时执行三平台格式、Clippy、测试及编译检查。
-- `desktop.yml`：桌面端或库发生变化时执行前端及三平台原生检查，构建调试应用验证清单，不生成安装包。
-- `release.yml`：**仅推送 `v*` tag 时触发**。先验证 tag 与版本元数据，再分别打包 CLI 和桌面客户端；所有平台成功且产物齐全后，统一上传到同一个 GitHub Release，并生成 `SHA256SUMS`。
+- `ci.yml`：分支推送、PR 和手动运行时，统一检查核心库、CLI、前端和三平台 Tauri 应用。构建调试应用验证清单，不生成安装包。
+- `release.yml`：推送 `v*` tag 时触发。先验证 tag 与版本元数据，再分别打包 CLI 和桌面客户端；所有平台成功且产物齐全后，统一上传到同一个 GitHub Release，并生成 `SHA256SUMS`。
 
-发布工作流不提供手动触发入口，不修改版本或创建 tag。`v1.2.3-rc.1` 等预发布 tag 会创建 GitHub Prerelease；普通版本 tag 创建正式 Release。单个平台失败时不会发布不完整的新 Release。失败后可在 Actions 中重跑，产物上传使用同一个 tag。
+发布工作流不修改版本或创建 tag。`v1.2.3-rc.1` 等预发布 tag 会创建 GitHub Prerelease；普通版本 tag 创建正式 Release。单个平台失败时不会发布不完整的新 Release。失败后可在 Actions 中重跑，产物上传使用同一个 tag。
+
+已有 tag 未触发或需要用修复后的工作流补跑时，可在 Release 的「Run workflow」中选择 `main` 并填写已有 tag，也可执行 `gh workflow run release.yml --ref main -f tag=v0.2.0`。工作流先检出该 tag 并校验版本，然后将所有构建和发布说明固定到该 tag 的提交；不会将 main 的应用源码作为旧版本发布，也不移动或重建已有 tag。
+
+仓库通过 `.gitattributes` 将源码检出为 LF，并在桌面端明确 Prettier 的 LF 配置，避免 Windows 的 `core.autocrlf` 导致仅该平台格式检查失败。
 
 构建任务只授予 `contents: read`，最终发布任务单独使用 `contents: write` 和内置 `GITHUB_TOKEN`，不需要额外的 GitHub PAT。仓库或组织策略需允许工作流使用该写权限。
 
@@ -40,6 +43,6 @@
    python .github/scripts/release.py validate --tag v1.2.3
    ```
 
-4. 提交发布元数据，并在该提交上创建对应 tag，推送代码和 tag。版本校验通过后，GitHub Actions 自动打包发布；等待 Release 和两种客户端的全部资产实际出现后，才确认发布完成。
+4. 提交发布元数据，并在该提交上创建对应 tag。先推送 main，确认默认分支已包含发布工作流，再单独推送版本 tag。版本校验通过后，GitHub Actions 自动打包发布；等待 Release 和两种客户端的全部资产实际出现后，才确认发布完成。
 
 当前库与桌面端的开发版本可以不同；发布前必须统一。校验失败会直接停止发布，不会自动改版本来迁就 tag。完整三平台打包和上传需由 GitHub 托管 runner 验证，本地脚本测试不代表已在 GitHub 发布成功。

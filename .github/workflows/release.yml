@@ -3,27 +3,40 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to recover, for example v0.2.0'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 env:
   CARGO_INCREMENTAL: '0'
-  RELEASE_TAG: ${{ github.ref_name }}
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   validate:
-    if: github.event.deleted == false
+    if: github.event_name == 'workflow_dispatch' || github.event.deleted == false
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
+      source_sha: ${{ steps.source.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - name: Pin the existing tag's source commit
+        id: source
+        shell: bash
+        run: printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -51,6 +64,8 @@ jobs:
       RELEASE_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -109,6 +124,8 @@ jobs:
       RELEASE_BUNDLES: ${{ matrix.bundles }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: '12.20.0'
@@ -170,6 +187,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
