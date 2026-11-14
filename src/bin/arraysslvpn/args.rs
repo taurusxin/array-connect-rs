@@ -1,120 +1,113 @@
-use arraysslvpn::{
-    AuthConfig, ClientConfig, ExposeSecret, RouteMode, SecretString, TlsBackend, VpnClient,
+use super::{
+    logging::LogFormat,
+    password::{TerminalPassword, stdin_secret},
 };
-use clap::{ArgAction, Parser, ValueEnum};
+use arraysslvpn::{AuthConfig, ClientConfig, RouteMode, TlsBackend};
+use clap::{ArgAction, Parser};
 use ipnet::Ipv4Net;
 use serde::Deserialize;
 use std::{
-    io::{self, IsTerminal, Read, Write},
+    io::{self, IsTerminal},
     net::IpAddr,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
-use tracing_subscriber::{EnvFilter, fmt::MakeWriter};
-mod cli_password;
-
-#[derive(Clone, Copy, Debug, Deserialize, ValueEnum)]
-#[serde(rename_all = "lowercase")]
-enum LogFormat {
-    Text,
-    Json,
-}
 
 /// Array Networks SSL VPN over TLS. Requires administrator/root for system networking.
 /// DTLS and full IPv6 network configuration are deferred.
 #[derive(Parser, Default, Deserialize)]
 #[command(version, about)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
-struct Args {
+pub(super) struct Args {
     /// HTTPS gateway URL or hostname.
-    server: Option<String>,
+    pub(super) server: Option<String>,
     #[arg(long)]
     #[serde(skip)]
-    config: Option<PathBuf>,
+    pub(super) config: Option<PathBuf>,
     #[arg(short = 'u', long)]
-    user: Option<String>,
+    pub(super) user: Option<String>,
     #[arg(long)]
-    authgroup: Option<String>,
+    pub(super) authgroup: Option<String>,
     /// Read one password line from stdin instead of prompting.
     #[arg(long,action=ArgAction::SetTrue)]
     #[serde(skip)]
-    passwd_on_stdin: bool,
+    pub(super) passwd_on_stdin: bool,
     /// Explicit session Cookie header (prefer --cookie-file for repeated use).
     #[arg(long,conflicts_with_all=["cookie_file","cookie_on_stdin","passwd_on_stdin","user"])]
     #[serde(skip)]
-    cookie: Option<String>,
+    pub(super) cookie: Option<String>,
     #[arg(long,conflicts_with_all=["cookie","cookie_on_stdin","passwd_on_stdin","user"])]
-    cookie_file: Option<PathBuf>,
+    pub(super) cookie_file: Option<PathBuf>,
     #[arg(long,conflicts_with_all=["cookie","cookie_file","passwd_on_stdin","user"])]
     #[serde(skip)]
-    cookie_on_stdin: bool,
+    pub(super) cookie_on_stdin: bool,
     /// Authenticate and print only the session cookie to stdout; no TUN required.
     #[arg(long)]
     #[serde(skip)]
-    authenticate: bool,
+    pub(super) authenticate: bool,
     /// Verify only TCP/TLS, sending no HTTP requests or credentials.
     #[arg(long, conflicts_with = "authenticate")]
     #[serde(skip)]
-    tls_probe: bool,
+    pub(super) tls_probe: bool,
     #[arg(long)]
-    port: Option<u16>,
+    pub(super) port: Option<u16>,
     #[arg(long)]
-    cafile: Option<PathBuf>,
+    pub(super) cafile: Option<PathBuf>,
     /// rustls (default), or the optional OpenSSL compatibility backend.
     #[arg(long, value_enum)]
-    tls_backend: Option<TlsBackend>,
+    pub(super) tls_backend: Option<TlsBackend>,
     /// OpenSSL cipher-list syntax; requires --tls-backend openssl.
     #[arg(long)]
-    openssl_ciphers: Option<String>,
+    pub(super) openssl_ciphers: Option<String>,
     /// SHA-256 SPKI pin: pin-sha256:BASE64. May be repeated.
     #[arg(long, conflicts_with = "insecure")]
-    servercert: Vec<String>,
+    pub(super) servercert: Vec<String>,
     /// Bypass certificate CA/name validation (handshake signatures still checked).
     #[arg(long,num_args=0..=1,default_missing_value="true",require_equals=true)]
-    insecure: Option<bool>,
+    pub(super) insecure: Option<bool>,
     /// http:// or socks5:// proxy, optionally including percent-encoded credentials.
     #[arg(long)]
-    proxy: Option<String>,
+    pub(super) proxy: Option<String>,
     /// Connect to this IP while keeping the gateway hostname for TLS and HTTP.
     #[arg(long)]
-    resolve: Option<IpAddr>,
+    pub(super) resolve: Option<IpAddr>,
     #[arg(long)]
-    hostname: Option<String>,
+    pub(super) hostname: Option<String>,
     #[arg(long)]
-    useragent: Option<String>,
+    pub(super) useragent: Option<String>,
     /// TCP/TLS and each negotiation/write timeout in seconds.
     #[arg(long)]
-    connect_timeout: Option<u64>,
+    pub(super) connect_timeout: Option<u64>,
     /// Total reconnect retry window in seconds; zero disables retries.
     #[arg(long)]
-    reconnect_timeout: Option<u64>,
+    pub(super) reconnect_timeout: Option<u64>,
     /// DPD interval in seconds; defaults to server value, otherwise 30.
     #[arg(long)]
-    dpd: Option<u64>,
+    pub(super) dpd: Option<u64>,
     #[arg(short = 'i', long)]
-    interface: Option<String>,
+    pub(super) interface: Option<String>,
     #[arg(long)]
-    mtu: Option<u16>,
+    pub(super) mtu: Option<u16>,
     #[arg(long, value_enum)]
-    route_mode: Option<RouteMode>,
+    pub(super) route_mode: Option<RouteMode>,
     #[arg(long = "route")]
-    routes: Vec<Ipv4Net>,
+    pub(super) routes: Vec<Ipv4Net>,
     #[arg(long = "exclude-route")]
-    exclude_routes: Vec<Ipv4Net>,
+    pub(super) exclude_routes: Vec<Ipv4Net>,
     /// Leave system DNS unchanged.
     #[arg(long,num_args=0..=1,default_missing_value="true",require_equals=true)]
-    no_dns: Option<bool>,
+    pub(super) no_dns: Option<bool>,
     #[arg(short='v',action=ArgAction::Count)]
     #[serde(skip)]
-    verbose: u8,
+    pub(super) verbose: u8,
     #[arg(long)]
-    log_level: Option<String>,
+    pub(super) log_level: Option<String>,
     #[arg(long, value_enum)]
-    log_format: Option<LogFormat>,
+    pub(super) log_format: Option<LogFormat>,
     /// Append logs to this file instead of stderr.
     #[arg(long)]
-    log_file: Option<PathBuf>,
+    pub(super) log_file: Option<PathBuf>,
 }
 
 impl Args {
@@ -155,7 +148,7 @@ impl Args {
             self.exclude_routes = file.exclude_routes;
         }
     }
-    fn load() -> Result<Self, Box<dyn std::error::Error>> {
+    pub(super) fn load() -> Result<Self, Box<dyn std::error::Error>> {
         let mut args = Self::parse();
         if let Some(path) = &args.config {
             let text = std::fs::read_to_string(path)?;
@@ -169,83 +162,7 @@ impl Args {
     }
 }
 
-#[derive(Clone)]
-struct LogWriter(Arc<Mutex<Box<dyn Write + Send>>>);
-struct LogGuard<'a>(std::sync::MutexGuard<'a, Box<dyn Write + Send>>);
-impl Write for LogGuard<'_> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.write(buf)
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        self.0.flush()
-    }
-}
-impl<'a> MakeWriter<'a> for LogWriter {
-    type Writer = LogGuard<'a>;
-    fn make_writer(&'a self) -> Self::Writer {
-        LogGuard(self.0.lock().unwrap_or_else(|e| e.into_inner()))
-    }
-}
-fn init_logging(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
-    let level = args.log_level.clone().unwrap_or_else(|| {
-        match args.verbose {
-            0 => "info",
-            1 => "debug",
-            _ => "trace",
-        }
-        .into()
-    });
-    let filter = EnvFilter::try_new(level).map_err(|_| "invalid --log-level filter")?;
-    let file = args.log_file.is_some();
-    let writer: Box<dyn Write + Send> = if let Some(path) = &args.log_file {
-        Box::new(
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)?,
-        )
-    } else {
-        Box::new(io::stderr())
-    };
-    let builder = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_ansi(!file && io::stderr().is_terminal())
-        .with_writer(LogWriter(Arc::new(Mutex::new(writer))));
-    match args.log_format.unwrap_or(LogFormat::Text) {
-        LogFormat::Json => builder
-            .json()
-            .try_init()
-            .map_err(|_| "cannot initialize logging")?,
-        LogFormat::Text => builder
-            .try_init()
-            .map_err(|_| "cannot initialize logging")?,
-    }
-    Ok(())
-}
-
-fn stdin_secret() -> io::Result<SecretString> {
-    // Avoid unbounded read_line allocation on redirected input.
-    use io::BufRead;
-    let mut bytes = Vec::new();
-    let n = io::stdin()
-        .lock()
-        .take(16386)
-        .read_until(b'\n', &mut bytes)?;
-    if n == 0 || n > 16384 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "stdin secret is empty or too long",
-        ));
-    }
-    while bytes.last().is_some_and(|b| *b == b'\r' || *b == b'\n') {
-        bytes.pop();
-    }
-    let value = String::from_utf8(bytes)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "stdin secret must be UTF-8"))?;
-    Ok(SecretString::from(value))
-}
-
-fn config(args: &Args) -> Result<ClientConfig, Box<dyn std::error::Error>> {
+pub(super) fn client_config(args: &Args) -> Result<ClientConfig, Box<dyn std::error::Error>> {
     let server = args
         .server
         .as_deref()
@@ -286,7 +203,7 @@ fn config(args: &Args) -> Result<ClientConfig, Box<dyn std::error::Error>> {
             AuthConfig::DeferredPassword {
                 username: user,
                 authgroup,
-                provider: Arc::new(cli_password::TerminalPassword),
+                provider: Arc::new(TerminalPassword),
             }
         }
     };
@@ -334,64 +251,6 @@ fn config(args: &Args) -> Result<ClientConfig, Box<dyn std::error::Error>> {
     Ok(config)
 }
 
-#[tokio::main]
-async fn main() -> std::process::ExitCode {
-    match run().await {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("arraysslvpn: {error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
-}
-async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::load()?;
-    init_logging(&args)?;
-    let config = config(&args)?;
-    if config.tls.insecure {
-        tracing::warn!("certificate CA/name verification explicitly disabled");
-    }
-    let client = VpnClient::new(config)?;
-    let handle = client.handle();
-    let signals = tokio::spawn(async move {
-        #[cfg(unix)]
-        {
-            let mut term =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-            tokio::select! {result=tokio::signal::ctrl_c()=>result?,_=term.recv()=>{}}
-        }
-        #[cfg(not(unix))]
-        {
-            tokio::signal::ctrl_c().await?;
-        }
-        handle.disconnect();
-        Ok::<_, io::Error>(())
-    });
-    let result = if args.tls_probe {
-        client.probe_tls().await.map(|info| {
-            println!(
-                "{}",
-                serde_json::to_string(&info).expect("serializable TLS metadata")
-            )
-        })
-    } else if args.authenticate {
-        client
-            .authenticate()
-            .await
-            .map(|cookie| println!("{}", cookie.expose_secret()))
-    } else {
-        match client.connect().await {
-            Ok(session) => session.run().await,
-            Err(error) => Err(error),
-        }
-    };
-    signals.abort();
-    match result {
-        Err(arraysslvpn::VpnError::Cancelled) => Ok(()),
-        other => other.map_err(Into::into),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,7 +283,11 @@ mod tests {
     }
     #[test]
     fn example_config_is_valid() {
-        let file: Args = toml::from_str(include_str!("../config.example.toml")).unwrap();
+        let file: Args = toml::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/config.example.toml"
+        )))
+        .unwrap();
         assert_eq!(file.route_mode, Some(RouteMode::Server));
     }
 }

@@ -1,4 +1,4 @@
-use crate::{Result, VpnError, event::Shared};
+use crate::{Result, VpnError, client::Shared};
 use std::{future::Future, time::Duration};
 use tokio::time::timeout;
 

@@ -6,20 +6,18 @@ mod auth;
 mod client;
 mod config;
 mod error;
-mod event;
-mod http;
 pub mod network;
 pub mod protocol;
 mod transport;
-mod util;
 
 pub use auth::{PasswordChallenge, PasswordProvider};
-pub use client::{SessionHandle, VpnClient, VpnSession};
+pub use client::{
+    ClientEvent, ConnectionState, SessionHandle, SessionStats, VpnClient, VpnSession,
+};
 pub use config::{
     AuthConfig, ClientConfig, NetworkConfig, ReconnectConfig, RouteMode, TlsBackend, TlsConfig,
 };
 pub use error::{Result, VpnError};
-pub use event::{ClientEvent, ConnectionState, SessionStats};
 pub use network::{NetworkManager, PacketIo};
 pub use protocol::NetworkSettings;
 pub use secrecy::{ExposeSecret, SecretString};

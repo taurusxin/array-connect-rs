@@ -9,14 +9,17 @@ use std::{
 use tun_rs::{AsyncDevice, DeviceBuilder};
 
 #[cfg(windows)]
-#[path = "windows.rs"]
-mod platform;
+mod windows;
+#[cfg(windows)]
+use windows as platform;
 #[cfg(target_os = "linux")]
-#[path = "linux.rs"]
-mod platform;
+mod linux;
+#[cfg(target_os = "linux")]
+use linux as platform;
 #[cfg(target_os = "macos")]
-#[path = "macos.rs"]
-mod platform;
+mod macos;
+#[cfg(target_os = "macos")]
+use macos as platform;
 
 #[async_trait]
 impl PacketIo for AsyncDevice {

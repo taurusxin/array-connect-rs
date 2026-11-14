@@ -1,6 +1,6 @@
 use super::{TlsContext, TlsInfo, TlsStreamIo, decode_pins, spki_hash, spki_pin};
 use crate::{Result, TlsBackend, TlsConfig, VpnError};
-use openssl::{
+use ::openssl::{
     ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion},
     x509::X509,
 };
@@ -116,8 +116,7 @@ pub(super) async fn connect(
 mod tests {
     use super::*;
     use crate::{AuthConfig, ClientConfig, VpnClient};
-    use base64::Engine;
-    use openssl::{
+    use ::openssl::{
         asn1::Asn1Time,
         hash::MessageDigest,
         pkey::PKey,
@@ -125,6 +124,7 @@ mod tests {
         ssl::{Ssl, SslAcceptor},
         x509::{X509NameBuilder, extension::SubjectAlternativeName},
     };
+    use base64::Engine;
     use std::{
         net::SocketAddr,
         sync::atomic::{AtomicUsize, Ordering},
@@ -249,7 +249,7 @@ mod tests {
             0,
             "probe must not send HTTP or credentials"
         );
-        let mut wire = super::super::connect(&config, context(&config.tls).unwrap())
+        let mut wire = crate::transport::connect(&config, context(&config.tls).unwrap())
             .await
             .unwrap();
         wire.stream.write_all(b"PING").await.unwrap();
@@ -269,7 +269,7 @@ mod tests {
         ));
         config.tls.server_pins = vec![format!(
             "pin-sha256:{}",
-            super::super::STANDARD.encode([0u8; 32])
+            base64::engine::general_purpose::STANDARD.encode([0u8; 32])
         )];
         assert!(matches!(
             VpnClient::new(config.clone()).unwrap().probe_tls().await,

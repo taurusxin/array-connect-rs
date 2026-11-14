@@ -1,3 +1,9 @@
+//! Password callbacks and Array login/session management.
+mod cookie;
+mod session;
+
+pub(crate) use session::AuthSession;
+
 use crate::{Result, SecretString, TlsInfo};
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;

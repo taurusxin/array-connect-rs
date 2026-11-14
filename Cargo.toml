@@ -52,7 +52,7 @@ rcgen = { version = "0.14", default-features = false, features = ["crypto", "rin
 
 [[bin]]
 name = "arraysslvpn"
-path = "src/main.rs"
+path = "src/bin/arraysslvpn/main.rs"
 required-features = ["cli"]
 
 [[example]]

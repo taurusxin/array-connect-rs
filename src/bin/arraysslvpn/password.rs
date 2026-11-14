@@ -125,6 +125,28 @@ fn read_password(stop: CancellationToken, parent: CancellationToken) -> Result<S
     }
 }
 
+pub(super) fn stdin_secret() -> io::Result<SecretString> {
+    // Avoid unbounded read_line allocation on redirected input.
+    use io::{BufRead, Read};
+    let mut bytes = Vec::new();
+    let n = io::stdin()
+        .lock()
+        .take(16386)
+        .read_until(b'\n', &mut bytes)?;
+    if n == 0 || n > 16384 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "stdin secret is empty or too long",
+        ));
+    }
+    while bytes.last().is_some_and(|b| *b == b'\r' || *b == b'\n') {
+        bytes.pop();
+    }
+    let value = String::from_utf8(bytes)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "stdin secret must be UTF-8"))?;
+    Ok(SecretString::from(value))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

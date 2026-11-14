@@ -1,143 +1,22 @@
+use super::{SessionHandle, Shared, bounded};
 use crate::{
     AuthConfig, ClientConfig, ClientEvent, ConnectionState, NetworkManager, NetworkSettings,
-    PacketIo, Result, SecretString, SessionStats, VpnError,
-    event::Shared,
-    http::AuthSession,
+    PacketIo, Result, VpnError,
+    auth::AuthSession,
     protocol::{self, PacketDecoder, TunnelPacket},
-    transport::{self, TlsContext, Wire},
-    util::bounded,
+    transport::{TlsContext, Wire},
 };
 use std::{sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::{broadcast, watch},
     time::{Instant, timeout},
 };
 use tracing::Instrument;
 
-/// A cloneable control plane. Event receivers may lag without blocking packets;
-/// use state()/stats() to resynchronize after a broadcast Lagged error.
-#[derive(Clone)]
-pub struct SessionHandle {
-    shared: Arc<Shared>,
-}
-impl SessionHandle {
-    pub fn disconnect(&self) {
-        self.shared.cancel.cancel();
-    }
-    pub fn cancellation_token(&self) -> tokio_util::sync::CancellationToken {
-        self.shared.cancel.clone()
-    }
-    pub fn state(&self) -> ConnectionState {
-        *self.shared.state.borrow()
-    }
-    pub fn watch_state(&self) -> watch::Receiver<ConnectionState> {
-        self.shared.state.subscribe()
-    }
-    pub fn subscribe(&self) -> broadcast::Receiver<ClientEvent> {
-        self.shared.events.subscribe()
-    }
-    pub fn stats(&self) -> SessionStats {
-        self.shared.stats()
-    }
-}
-
-/// One connection attempt and its reconnect policy. Create a new client after
-/// disconnecting; credentials stay in memory and are never persisted by the library.
-pub struct VpnClient {
-    config: Arc<ClientConfig>,
-    tls: TlsContext,
-    shared: Arc<Shared>,
-}
-impl VpnClient {
-    pub fn new(config: ClientConfig) -> Result<Self> {
-        config.validate()?;
-        let tls = transport::tls_config(&config.tls)?;
-        Ok(Self {
-            config: Arc::new(config),
-            tls,
-            shared: Shared::new(),
-        })
-    }
-    pub fn handle(&self) -> SessionHandle {
-        SessionHandle {
-            shared: self.shared.clone(),
-        }
-    }
-    /// Verify TCP/TLS compatibility without sending credentials, HTTP requests,
-    /// or changing the host network. Uses the configured CA/pin/insecure policy.
-    pub async fn probe_tls(&self) -> Result<crate::TlsInfo> {
-        self.shared.set_state(ConnectionState::Connecting);
-        let result = bounded(
-            &self.shared,
-            self.config.connect_timeout,
-            "TLS probe",
-            transport::connect(&self.config, self.tls.clone()),
-        )
-        .await;
-        self.shared.set_state(ConnectionState::Disconnected);
-        result.map(|wire| wire.info)
-    }
-    pub async fn authenticate(&self) -> Result<SecretString> {
-        self.shared.set_state(ConnectionState::Authenticating);
-        let mut auth = AuthSession::new();
-        let result = auth
-            .authenticate(&self.config, self.tls.clone(), &self.shared, None)
-            .await;
-        self.shared.set_state(ConnectionState::Disconnected);
-        if let Err(error) = &result {
-            tracing::error!(%error,"Array authentication failed");
-            self.shared.emit(ClientEvent::Error(error.to_string()));
-        }
-        result
-    }
-    #[cfg(feature = "system-network")]
-    pub async fn connect(self) -> Result<VpnSession> {
-        self.connect_with(Box::new(crate::network::SystemNetworkManager::default()))
-            .await
-    }
-    /// Provide a custom system configuration implementation or userspace packet
-    /// endpoint. This entry point also works without the system-network feature.
-    pub async fn connect_with(self, network: Box<dyn NetworkManager>) -> Result<VpnSession> {
-        let span = tracing::info_span!("vpn", session_id = self.shared.session_id);
-        async move {
-            let mut session = VpnSession {
-                config: self.config,
-                tls: self.tls,
-                shared: self.shared,
-                auth: AuthSession::new(),
-                wire: None,
-                io: None,
-                network,
-                settings: None,
-                dpd: Duration::from_secs(30),
-                client_id: client_id(),
-                attempt_deadline: None,
-            };
-            let result = session.establish(true).await;
-            if let Err(error) = result {
-                tracing::error!(%error,"VPN connection failed");
-                let cleanup = session.finish().await;
-                session.shared.emit(ClientEvent::Error(error.to_string()));
-                return match cleanup {
-                    Ok(()) => Err(error),
-                    Err(cleanup) => Err(VpnError::Cleanup {
-                        primary: error.to_string(),
-                        cleanup: cleanup.to_string(),
-                    }),
-                };
-            }
-            Ok(session)
-        }
-        .instrument(span)
-        .await
-    }
-}
-
 pub struct VpnSession {
     config: Arc<ClientConfig>,
     tls: TlsContext,
-    shared: Arc<Shared>,
+    pub(super) shared: Arc<Shared>,
     auth: AuthSession,
     wire: Option<Wire>,
     io: Option<Arc<dyn PacketIo>>,
@@ -149,6 +28,26 @@ pub struct VpnSession {
 }
 
 impl VpnSession {
+    pub(super) fn new(
+        config: Arc<ClientConfig>,
+        tls: TlsContext,
+        shared: Arc<Shared>,
+        network: Box<dyn NetworkManager>,
+    ) -> Self {
+        Self {
+            config,
+            tls,
+            shared,
+            auth: AuthSession::new(),
+            wire: None,
+            io: None,
+            network,
+            settings: None,
+            dpd: Duration::from_secs(30),
+            client_id: client_id(),
+            attempt_deadline: None,
+        }
+    }
     pub fn handle(&self) -> SessionHandle {
         SessionHandle {
             shared: self.shared.clone(),
@@ -171,7 +70,7 @@ impl VpnSession {
         }
     }
 
-    async fn establish(&mut self, initial: bool) -> Result<()> {
+    pub(super) async fn establish(&mut self, initial: bool) -> Result<()> {
         self.shared.set_state(ConnectionState::Connecting);
         if initial {
             self.shared.set_state(ConnectionState::Authenticating);
@@ -432,7 +331,7 @@ impl VpnSession {
             }
         }
     }
-    async fn finish(&mut self) -> Result<()> {
+    pub(super) async fn finish(&mut self) -> Result<()> {
         self.shared.set_state(ConnectionState::Disconnecting);
         self.wire = None;
         self.io = None;

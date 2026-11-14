@@ -19,6 +19,10 @@ DTLS、完整 IPv6 网络配置、OTP/MFA、浏览器 SSO 和后台提权服务�
 
 默认后端需要网关支持 Rustls 的 TLS 1.2/1.3 和密码套件。仅支持静态 RSA/CBC（例如 AES128-SHA）的网关可使用下述可选兼容后端。两个后端均不支持 TLS 1.0/1.1，不会自动更换后端或退回不加密 UDP。
 
+## 仓库结构
+
+源码按职责划分为 `src/auth`、`src/client`、`src/protocol`、`src/transport` 和 `src/network`；CLI 位于 `src/bin/arraysslvpn`。项目仍为单个 Cargo package，公共 API 由 `src/lib.rs` 统一导出。完整目录与职责见 [代码结构说明](docs/architecture.md)。
+
 ## 旧网关的可选 OpenSSL 后端
 
 某些 Array 设备只接受 TLS 1.2 + AES128-SHA，并且会重置包含 TLS 1.3 声明的 ClientHello。Rustls 不支持静态 RSA 密钥交换或 CBC 套件，修改 CA 或使用 --insecure 不能启用这些套件。
