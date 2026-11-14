@@ -1,6 +1,6 @@
 [package]
 name = "arraysslvpn-desktop"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 license = "LGPL-2.1-only"
 description = "Array Connect desktop client"

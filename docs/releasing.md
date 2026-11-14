@@ -27,7 +27,7 @@
 
 ## 发布新版时
 
-1. 完成修改、验收并准备发布说明。
+1. 完成修改、验收并将发布说明写入 `docs/releases/v目标版本.md`。工作流优先使用该文件作为 Release 正文；未提供时由 GitHub 自动生成。
 2. 将以下文件中的项目版本统一为目标版本（不含 `v`），保留其他依赖版本：
    - 根目录 `Cargo.toml`、`Cargo.lock` 中的 `arraysslvpn`。
    - `desktop/package.json`、`desktop/src-tauri/Cargo.toml`、`desktop/src-tauri/tauri.conf.json`。

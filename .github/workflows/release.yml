@@ -189,7 +189,13 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            args=(--draft --verify-tag --generate-notes --title "Array Connect $RELEASE_TAG")
+            args=(--draft --verify-tag --title "Array Connect $RELEASE_TAG")
+            notes_file="docs/releases/$RELEASE_TAG.md"
+            if [[ -f "$notes_file" ]]; then
+              args+=(--notes-file "$notes_file")
+            else
+              args+=(--generate-notes)
+            fi
             if [[ "$PRERELEASE" == 'true' ]]; then args+=(--prerelease); fi
             gh release create "$RELEASE_TAG" "${args[@]}"
           fi
