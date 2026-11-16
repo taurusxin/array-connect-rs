@@ -131,6 +131,23 @@ pub fn clear_logs(state: State<'_, Arc<Controller>>) {
 }
 
 #[tauri::command]
+pub async fn enroll_otp(
+    state: State<'_, Arc<Controller>>,
+    input: OtpEnrollmentInput,
+) -> Result<Profile, String> {
+    state.inner().clone().enroll_otp(input).await
+}
+#[tauri::command]
+pub async fn cancel_otp_enrollment(state: State<'_, Arc<Controller>>) -> Result<(), String> {
+    state.cancel_otp_enrollment().await;
+    Ok(())
+}
+#[tauri::command]
+pub async fn otp_qr(state: State<'_, Arc<Controller>>, id: String) -> Result<OtpQrCode, String> {
+    state.inner().clone().otp_qr(&id).await
+}
+
+#[tauri::command]
 pub async fn choose_close(
     state: State<'_, Arc<Controller>>,
     choice: CloseChoice,

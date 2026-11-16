@@ -10,6 +10,7 @@ pub mod network;
 pub mod protocol;
 mod transport;
 
+pub use auth::enrollment::{OtpEnrollment, OtpParameters};
 pub use auth::{PasswordChallenge, PasswordProvider};
 pub use client::{
     ClientEvent, ConnectionState, SessionHandle, SessionStats, VpnClient, VpnSession,

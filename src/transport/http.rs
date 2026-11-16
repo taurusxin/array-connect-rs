@@ -136,3 +136,76 @@ async fn read_line(wire: &mut Wire) -> Result<Vec<u8>> {
         wire.read_more().await?;
     }
 }
+
+/// Bounded portal body reader, including close-delimited and chunked pages.
+pub(crate) async fn body(wire: &mut Wire, response: &Response) -> Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    if matches!(response.status, 204 | 304) {
+        return Ok(Vec::new());
+    }
+    if let Some(encoding) = response.header("transfer-encoding") {
+        if !encoding.eq_ignore_ascii_case("chunked") || response.header("content-length").is_some()
+        {
+            return Err(VpnError::Protocol("ambiguous portal HTTP framing".into()));
+        }
+        let mut result = Vec::new();
+        loop {
+            let line = read_line(wire).await?;
+            let line = std::str::from_utf8(&line)
+                .map_err(|_| VpnError::Protocol("invalid portal chunk".into()))?;
+            let len = usize::from_str_radix(line.split(';').next().unwrap_or("").trim(), 16)
+                .map_err(|_| VpnError::Protocol("invalid portal chunk length".into()))?;
+            if result
+                .len()
+                .checked_add(len)
+                .is_none_or(|size| size > MAX_BODY)
+            {
+                return Err(VpnError::Protocol("portal body too large".into()));
+            }
+            if len == 0 {
+                let mut trailers = 0;
+                loop {
+                    let line = read_line(wire).await?;
+                    if line.is_empty() {
+                        return Ok(result);
+                    }
+                    trailers += line.len() + 2;
+                    if trailers > MAX_HEADERS {
+                        return Err(VpnError::Protocol("portal trailers too large".into()));
+                    }
+                }
+            }
+            while wire.buffer.len() < len + 2 {
+                wire.read_more().await?;
+            }
+            if &wire.buffer[len..len + 2] != b"\r\n" {
+                return Err(VpnError::Protocol("invalid portal chunk terminator".into()));
+            }
+            result.extend_from_slice(&wire.buffer[..len]);
+            wire.buffer.advance(len + 2);
+        }
+    }
+    if let Some(length) = response.header("content-length") {
+        let len = length
+            .parse::<usize>()
+            .ok()
+            .filter(|len| *len <= MAX_BODY)
+            .ok_or_else(|| VpnError::Protocol("invalid portal body length".into()))?;
+        while wire.buffer.len() < len {
+            wire.read_more().await?;
+        }
+        return Ok(wire.buffer.split_to(len).to_vec());
+    }
+    let mut result = wire.buffer.split().to_vec();
+    loop {
+        if result.len() > MAX_BODY {
+            return Err(VpnError::Protocol("portal body too large".into()));
+        }
+        let mut bytes = [0; 8192];
+        let count = wire.stream.read(&mut bytes).await?;
+        if count == 0 {
+            return Ok(result);
+        }
+        result.extend_from_slice(&bytes[..count]);
+    }
+}

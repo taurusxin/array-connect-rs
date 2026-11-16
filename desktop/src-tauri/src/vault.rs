@@ -72,6 +72,21 @@ fn rollback<T>(
     })
 }
 
+/// Promote a gateway-confirmed candidate without including the recovery copy in
+/// rollback. A database/keychain failure must leave that candidate recoverable.
+pub fn promote_otp<T>(
+    vault: &dyn SecretStore,
+    profile: &str,
+    seed: SecretString,
+    commit: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let result = transaction(vault, profile, vec![("totp", Some(seed))], commit)?;
+    if let Err(error) = vault.set(profile, "totp-pending", None) {
+        tracing::warn!(%error,"could not remove confirmed OTP recovery copy");
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +153,49 @@ mod tests {
                 "old-password"
             );
             assert!(vault.get("profile", "totp").unwrap().is_none());
+        }
+    }
+    #[test]
+    fn confirmed_otp_promotion_keeps_candidate_recoverable_on_any_local_failure() {
+        for keychain_failure in [true, false] {
+            let vault = MemoryVault {
+                values: Mutex::new(HashMap::from([
+                    ("totp".into(), "old-seed".into()),
+                    ("totp-pending".into(), "candidate-seed".into()),
+                ])),
+                fail_next_totp: AtomicBool::new(keychain_failure),
+            };
+            let result: Result<(), String> =
+                promote_otp(&vault, "profile", "candidate-seed".into(), || {
+                    Err("database failed".into())
+                });
+            assert!(result.is_err());
+            assert_eq!(
+                vault
+                    .get("profile", "totp")
+                    .unwrap()
+                    .unwrap()
+                    .expose_secret(),
+                "old-seed"
+            );
+            assert_eq!(
+                vault
+                    .get("profile", "totp-pending")
+                    .unwrap()
+                    .unwrap()
+                    .expose_secret(),
+                "candidate-seed"
+            );
+            promote_otp(&vault, "profile", "candidate-seed".into(), || Ok(())).unwrap();
+            assert_eq!(
+                vault
+                    .get("profile", "totp")
+                    .unwrap()
+                    .unwrap()
+                    .expose_secret(),
+                "candidate-seed"
+            );
+            assert!(vault.get("profile", "totp-pending").unwrap().is_none());
         }
     }
 

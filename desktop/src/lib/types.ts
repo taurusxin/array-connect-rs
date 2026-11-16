@@ -8,11 +8,10 @@ export type Profile = {
   savePassword: boolean;
   passwordStored: boolean;
   twoFactor: boolean;
-  autoTotp: boolean;
-  totpStored: boolean;
-  totpAlgorithm: string;
-  totpDigits: number;
-  totpPeriod: number;
+  otpMode: "manual" | "automatic";
+  otpSecretStored: boolean;
+  otpParameters: { period: number; time_offset_seconds: number | null } | null;
+  otpPending: boolean;
   proxyEnabled: boolean;
   proxyScheme: string;
   proxyHost: string;
@@ -39,7 +38,7 @@ export type Profile = {
 };
 export type SecretUpdates = {
   password?: string;
-  totpSecret?: string;
+  otpSecret?: string;
   proxyPassword?: string;
 };
 export type Preferences = {
@@ -136,11 +135,10 @@ export function newProfile(): Profile {
     savePassword: true,
     passwordStored: false,
     twoFactor: false,
-    autoTotp: false,
-    totpStored: false,
-    totpAlgorithm: "SHA1",
-    totpDigits: 6,
-    totpPeriod: 30,
+    otpMode: "manual",
+    otpSecretStored: false,
+    otpParameters: null,
+    otpPending: false,
     proxyEnabled: false,
     proxyScheme: "http",
     proxyHost: "127.0.0.1",

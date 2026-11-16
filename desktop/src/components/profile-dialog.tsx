@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { TextField, Choice, ToggleRow } from "./fields";
 import { newProfile, type Profile, type SecretUpdates } from "@/lib/types";
 import { useApp } from "@/stores/app";
+import { OtpSetup } from "./otp-setup";
 
 function Lines({
   label,
@@ -72,8 +73,7 @@ export function ProfileDialog({
     setSecrets({});
     onClose();
   };
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const persist = async (): Promise<Profile | null> => {
     const clean = {
       ...draft,
       name: draft.name.trim(),
@@ -83,7 +83,17 @@ export function ProfileDialog({
       includeRoutes: draft.includeRoutes.map((s) => s.trim()).filter(Boolean),
       excludeRoutes: draft.excludeRoutes.map((s) => s.trim()).filter(Boolean),
     };
-    if (await save(clean, secrets)) close();
+    if (!(await save(clean, secrets))) return null;
+    const saved =
+      useApp.getState().profiles.find((profile) => profile.id === clean.id) ??
+      clean;
+    setDraft(saved);
+    setSecrets({});
+    return saved;
+  };
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (await persist()) close();
   };
   return (
     <Dialog
@@ -195,54 +205,13 @@ export function ProfileDialog({
                     onChange={(v) => update("twoFactor", v)}
                   />
                   {draft.twoFactor && (
-                    <>
-                      <TextField
-                        label="BASE32 密钥"
-                        type="password"
-                        value={secrets.totpSecret ?? ""}
-                        onChange={(v) => secret("totpSecret", v)}
-                        placeholder={
-                          draft.totpStored
-                            ? "已存入系统密钥库 · 留空保持"
-                            : "输入验证器提供的 BASE32 密钥"
-                        }
-                        hint="不会把密钥或生成的验证码写入 SQLite、日志或浏览器存储。"
-                      />
-                      <ToggleRow
-                        label="自动认证"
-                        hint="每次认证生成新的 TOTP 验证码；关闭后手动输入验证码。"
-                        checked={draft.autoTotp}
-                        onChange={(v) => update("autoTotp", v)}
-                      />
-                      <div className="form-grid">
-                        <Choice
-                          label="算法"
-                          value={draft.totpAlgorithm}
-                          onChange={(v) => update("totpAlgorithm", v)}
-                          options={[
-                            ["SHA1", "SHA-1（常用）"],
-                            ["SHA256", "SHA-256"],
-                            ["SHA512", "SHA-512"],
-                          ]}
-                        />
-                        <Choice
-                          label="验证码位数"
-                          value={String(draft.totpDigits)}
-                          onChange={(v) => update("totpDigits", Number(v))}
-                          options={[
-                            ["6", "6 位"],
-                            ["8", "8 位"],
-                          ]}
-                        />
-                        <TextField
-                          label="更新周期（秒）"
-                          type="number"
-                          value={draft.totpPeriod}
-                          onChange={(v) => update("totpPeriod", Number(v))}
-                          hint="默认 30 秒，请保持系统时间准确。"
-                        />
-                      </div>
-                    </>
+                    <OtpSetup
+                      draft={draft}
+                      setDraft={setDraft}
+                      secrets={secrets}
+                      setSecret={secret}
+                      persist={persist}
+                    />
                   )}
                 </div>
                 <div className="inline-note">

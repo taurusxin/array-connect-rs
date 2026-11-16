@@ -1,4 +1,6 @@
-use arraysslvpn::{ClientConfig, NetworkSettings, RouteMode, SessionStats, TlsBackend};
+use arraysslvpn::{
+    ClientConfig, NetworkSettings, OtpParameters, RouteMode, SessionStats, TlsBackend,
+};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -7,6 +9,14 @@ pub fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OtpMode {
+    #[default]
+    Manual,
+    Automatic,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -21,12 +31,14 @@ pub struct Profile {
     #[serde(default)]
     pub password_stored: bool,
     pub two_factor: bool,
-    pub auto_totp: bool,
     #[serde(default)]
-    pub totp_stored: bool,
-    pub totp_algorithm: String,
-    pub totp_digits: u32,
-    pub totp_period: u64,
+    pub otp_mode: OtpMode,
+    #[serde(default)]
+    pub otp_secret_stored: bool,
+    #[serde(default)]
+    pub otp_parameters: Option<OtpParameters>,
+    #[serde(default)]
+    pub otp_pending: bool,
     pub proxy_enabled: bool,
     pub proxy_scheme: String,
     pub proxy_host: String,
@@ -76,14 +88,15 @@ impl Profile {
         {
             return Err("MTU 或超时参数超出有效范围".into());
         }
-        if !["SHA1", "SHA256", "SHA512"].contains(&self.totp_algorithm.as_str())
-            || ![6, 8].contains(&self.totp_digits)
-            || !(15..=120).contains(&self.totp_period)
-        {
-            return Err("TOTP 参数无效".into());
-        }
         if self.insecure && !self.server_pins.is_empty() {
             return Err("跳过证书校验与公钥固定不能同时启用".into());
+        }
+        if self
+            .otp_parameters
+            .as_ref()
+            .is_some_and(|parameters| !(1..=300).contains(&parameters.period))
+        {
+            return Err("网关 OTP 参数无效，请重新导入密钥或注册".into());
         }
         if self.tls_backend == TlsBackend::Rustls && !self.openssl_ciphers.is_empty() {
             return Err("自定义密码套件需要选择 OpenSSL 后端".into());
@@ -113,15 +126,41 @@ impl Profile {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SecretUpdates {
     pub password: Option<String>,
-    pub totp_secret: Option<String>,
+    pub otp_secret: Option<String>,
     pub proxy_password: Option<String>,
 }
 impl Drop for SecretUpdates {
     fn drop(&mut self) {
         use zeroize::Zeroize;
         self.password.zeroize();
-        self.totp_secret.zeroize();
+        self.otp_secret.zeroize();
         self.proxy_password.zeroize();
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OtpEnrollmentInput {
+    pub id: String,
+    pub password: String,
+    pub confirm_overwrite: bool,
+}
+impl Drop for OtpEnrollmentInput {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.password.zeroize();
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OtpQrCode {
+    pub svg: String,
+}
+impl Drop for OtpQrCode {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.svg.zeroize();
     }
 }
 

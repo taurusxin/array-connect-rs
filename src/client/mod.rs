@@ -40,6 +40,16 @@ impl VpnClient {
             shared: self.shared.clone(),
         }
     }
+    /// Read the Array OTP interval and clock offset without changing the gateway.
+    pub async fn otp_parameters(&self) -> Result<crate::OtpParameters> {
+        crate::auth::enrollment::parameters(&self.config, self.tls.clone(), &self.shared).await
+    }
+    /// Replace the gateway's OTP seed. The caller must explicitly confirm this
+    /// destructive account change and durably save the seed before calling.
+    /// Registration is independent of VPN connection and never creates a TUN.
+    pub async fn enroll_otp(&self, secret: SecretString) -> Result<crate::OtpEnrollment> {
+        crate::auth::enrollment::enroll(&self.config, self.tls.clone(), &self.shared, secret).await
+    }
     /// Verify TCP/TLS compatibility without sending credentials, HTTP requests,
     /// or changing the host network. Uses the configured CA/pin/insecure policy.
     pub async fn probe_tls(&self) -> Result<crate::TlsInfo> {

@@ -641,7 +641,10 @@
   flex: 1;
   min-width: 0;
 }
-.chart-surface svg {
+.chart-plot {
+  position: relative;
+}
+.chart-plot > svg {
   width: 100%;
   height: 135px;
   display: block;
@@ -649,17 +652,53 @@
 }
 .chart-empty {
   position: absolute;
-  inset: 0 0 21px;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   color: var(--muted-foreground);
   font-size: 10px;
+  pointer-events: none;
 }
 .chart-empty svg {
   width: 17px;
   height: 17px;
+}
+.chart-tooltip {
+  position: absolute;
+  top: 8px;
+  z-index: 1;
+  width: 176px;
+  max-width: calc(100% - 16px);
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover);
+  color: var(--foreground);
+  box-shadow: 0 4px 16px #00000014;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.chart-tooltip time {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.chart-tooltip-row + .chart-tooltip-row {
+  margin-top: 6px;
+}
+.chart-tooltip-row strong {
+  font-weight: 500;
+  white-space: nowrap;
 }
 .chart-time {
   display: flex;
@@ -1145,16 +1184,19 @@ tr:last-child td {
   background: linear-gradient(110deg, #fff, #3a444d);
   opacity: 0.7;
 }
-.settings-panel > .toggle-row {
+.settings-panel > .toggle-row,
+.setting-select-row {
+  padding: 17px 0;
   border-top: 1px solid var(--border);
 }
 .setting-select-row {
   display: flex;
   gap: 12px;
   align-items: center;
-  padding: 17px 0 0;
-  margin-top: 5px;
-  border-top: 1px solid var(--border);
+}
+.settings-panel > .toggle-row:last-child,
+.settings-panel > .setting-select-row:last-child {
+  padding-bottom: 0;
 }
 .setting-select-row > div:not(.field) {
   flex: 1;
@@ -1531,6 +1573,61 @@ tr:last-child td {
   display: flex;
   align-items: flex-end;
   gap: 12px;
+}
+.otp-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+.otp-mode-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.otp-mode-content > .field,
+.otp-mode-content > .otp-warning {
+  width: 100%;
+}
+.otp-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--destructive) 7%, var(--card));
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.otp-warning > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--destructive);
+}
+.otp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.otp-enrollment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.otp-qr {
+  display: block;
+  width: 280px;
+  max-width: 100%;
+  margin: 8px auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: white;
 }
 .overview-profile-picker {
   width: 245px;

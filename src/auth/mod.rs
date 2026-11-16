@@ -35,3 +35,4 @@ pub trait PasswordProvider: Send + Sync {
 
     async fn password(&self, challenge: PasswordChallenge) -> Result<SecretString>;
 }
+pub(crate) mod enrollment;

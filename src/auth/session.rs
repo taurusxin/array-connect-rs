@@ -58,7 +58,7 @@ impl AuthSession {
             .collect::<Vec<_>>()
             .join("; ")
     }
-    fn update(&mut self, response: &Response, url: &Url) -> Result<()> {
+    pub(super) fn update(&mut self, response: &Response, url: &Url) -> Result<()> {
         for (_, value) in response
             .headers
             .iter()
@@ -310,7 +310,7 @@ fn auth_timeout(config: &ClientConfig, deadline: Option<Instant>) -> Result<Dura
     }
 }
 
-async fn send(
+pub(super) async fn send(
     wire: &mut Wire,
     config: &ClientConfig,
     auth: &AuthSession,
@@ -328,10 +328,10 @@ async fn send(
         Some(p) => format!("{host}:{p}"),
         None => host,
     };
-    let mut request = format!(
+    let mut request = zeroize::Zeroizing::new(format!(
         "{method} {path} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: {}\r\nAccept-Encoding: identity\r\n",
         config.user_agent
-    );
+    ));
     let cookie = auth.cookie_header(url);
     if !cookie.is_empty() {
         request.push_str(&format!("Cookie: {cookie}\r\n"));

@@ -1,7 +1,7 @@
 {
   "id": "bd7e3d60-51e4-4435-bb22-69625587bc05", "name": "Test VPN", "server": "https://vpn.example.test", "username": "test-user", "authgroup": "local",
-  "savePassword": true, "passwordStored": false, "twoFactor": true, "autoTotp": true, "totpStored": false,
-  "totpAlgorithm": "SHA1", "totpDigits": 6, "totpPeriod": 30,
+  "savePassword": true, "passwordStored": false, "twoFactor": true, "otpMode": "manual", "otpSecretStored": false,
+  "otpParameters": null, "otpPending": false,
   "proxyEnabled": false, "proxyScheme": "http", "proxyHost": "127.0.0.1", "proxyPort": 8080, "proxyUsername": "", "proxyPasswordStored": false,
   "tlsBackend": "rustls", "insecure": false, "caFile": "", "serverPins": [], "opensslCiphers": "",
   "resolve": "", "hostname": "", "userAgent": "", "interfaceName": "", "mtu": 1400, "routeMode": "server",

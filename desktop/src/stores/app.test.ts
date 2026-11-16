@@ -37,7 +37,7 @@ describe("desktop connection and secret boundaries", () => {
     vi.mocked(command).mockResolvedValue([profile]);
     await useApp.getState().saveProfile(profile, {
       password: "private-test-password",
-      totpSecret: "private-test-seed",
+      otpSecret: "private-test-seed",
       proxyPassword: "private-test-proxy",
     });
     const state = JSON.stringify(useApp.getState());
@@ -179,5 +179,47 @@ describe("desktop connection and secret boundaries", () => {
       await useApp.getState().connect();
     }
     expect(command).not.toHaveBeenCalled();
+  });
+  it("requires explicit overwrite confirmation before invoking OTP enrollment", async () => {
+    expect(
+      await useApp
+        .getState()
+        .enrollOtp("profile", "private-enrollment-password", false),
+    ).toBeNull();
+    expect(command).not.toHaveBeenCalled();
+  });
+  it("updates enrollment status without retaining the static password in global state", async () => {
+    const profile = {
+      ...newProfile(),
+      otpMode: "automatic" as const,
+      otpSecretStored: true,
+      otpParameters: { period: 90, time_offset_seconds: 120 },
+    };
+    useApp.setState({ profiles: [profile] });
+    vi.mocked(command).mockResolvedValue(profile);
+    expect(
+      await useApp
+        .getState()
+        .enrollOtp(profile.id, "private-enrollment-password", true),
+    ).toEqual(profile);
+    expect(command).toHaveBeenCalledWith("enroll_otp", {
+      input: {
+        id: profile.id,
+        password: "private-enrollment-password",
+        confirmOverwrite: true,
+      },
+    });
+    expect(JSON.stringify(useApp.getState())).not.toContain(
+      "private-enrollment-password",
+    );
+    expect(useApp.getState().busy).toBe(false);
+  });
+  it("does not report registration success when the gateway result is uncertain", async () => {
+    vi.mocked(command).mockRejectedValue(new Error("registration uncertain"));
+    expect(
+      await useApp.getState().enrollOtp("profile", "private-password", true),
+    ).toBeNull();
+    expect(useApp.getState().notice).toBeNull();
+    expect(useApp.getState().error).toBe("registration uncertain");
   });
 });

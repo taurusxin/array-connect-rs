@@ -123,7 +123,7 @@ export function Profiles({
                           {profile.twoFactor && (
                             <span
                               title={
-                                profile.autoTotp
+                                profile.otpSecretStored
                                   ? "自动两步认证"
                                   : "手动两步认证"
                               }

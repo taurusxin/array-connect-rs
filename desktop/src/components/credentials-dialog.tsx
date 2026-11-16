@@ -74,7 +74,7 @@ export function CredentialsDialog({ request }: { request: CredentialRequest }) {
                 label="两步验证码"
                 value={otp}
                 onChange={setOtp}
-                placeholder={`输入 ${profile?.totpDigits ?? 6} 位验证码`}
+                placeholder="输入 6 位验证码"
                 autoComplete="one-time-code"
               />
             )}
@@ -106,7 +106,7 @@ export function CredentialsDialog({ request }: { request: CredentialRequest }) {
               disabled={
                 pending ||
                 (request.needsPassword && !password) ||
-                (request.needsOtp && otp.length !== (profile?.totpDigits ?? 6))
+                (request.needsOtp && !/^\d{6}$/.test(otp))
               }
             >
               {pending && <LoaderCircle className="animate-spin" />}认证

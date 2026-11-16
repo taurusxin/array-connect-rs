@@ -9,6 +9,10 @@ pub enum VpnError {
     Config(String),
     #[error("authentication failed or session expired")]
     Authentication,
+    #[error(
+        "OTP enrollment outcome is uncertain; the gateway may already have replaced the secret: {0}"
+    )]
+    OtpEnrollmentUncertain(#[source] Box<VpnError>),
     #[error("TLS error: {0}")]
     Tls(String),
     #[error("Array protocol error: {0}")]

@@ -37,6 +37,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 url = { version = "2", features = ["serde"] }
 x509-parser = "0.18"
+zeroize = "1"
 tun-rs = { version = "2", default-features = false, features = ["async_tokio"], optional = true }
 route_manager = { version = "0.2", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }

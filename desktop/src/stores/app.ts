@@ -47,6 +47,11 @@ type Store = {
   refresh: () => Promise<void>;
   refreshUsage: () => Promise<void>;
   saveProfile: (profile: Profile, secrets: SecretUpdates) => Promise<boolean>;
+  enrollOtp: (
+    id: string,
+    password: string,
+    confirmOverwrite: boolean,
+  ) => Promise<Profile | null>;
   deleteProfile: (id: string) => Promise<boolean>;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
@@ -251,6 +256,37 @@ export const useApp = create<Store>((set, get) => ({
     } catch (error) {
       set({ error: message(error) });
       return false;
+    } finally {
+      set({ busy: false });
+    }
+  },
+  enrollOtp: async (id, password, confirmOverwrite) => {
+    if (
+      !confirmOverwrite ||
+      get().busy ||
+      get().exitState !== "idle" ||
+      get().session.state !== "Disconnected"
+    ) {
+      set({
+        error: !confirmOverwrite
+          ? "请先确认覆盖已有 OTP 注册"
+          : "请先等待当前连接或操作结束",
+      });
+      return null;
+    }
+    set({ busy: true, error: null });
+    try {
+      const profile = await command<Profile>("enroll_otp", {
+        input: { id, password, confirmOverwrite },
+      });
+      set((state) => ({
+        profiles: state.profiles.map((old) => (old.id === id ? profile : old)),
+        notice: "OTP 注册成功，密钥已保存到系统密钥库",
+      }));
+      return profile;
+    } catch (error) {
+      set({ error: message(error) });
+      return null;
     } finally {
       set({ busy: false });
     }

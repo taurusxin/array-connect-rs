@@ -19,6 +19,8 @@ use tauri::Emitter;
 use tokio::sync::{oneshot, watch};
 use zeroize::Zeroizing;
 
+mod otp;
+
 pub struct Controller {
     pub app: tauri::AppHandle,
     pub db: Mutex<Database>,
@@ -30,6 +32,12 @@ pub struct Controller {
     active: Mutex<Option<Active>>,
     snapshot: Mutex<LiveSession>,
     pending: Mutex<Option<Pending>>,
+    enrollment: Mutex<Option<OtpOperation>>,
+}
+struct OtpOperation {
+    profile_id: String,
+    cancel: arraysslvpn::CancellationToken,
+    done: watch::Receiver<bool>,
 }
 struct Active {
     id: String,
@@ -64,6 +72,7 @@ impl Controller {
                 ..Default::default()
             }),
             pending: Mutex::new(None),
+            enrollment: Mutex::new(None),
         })
     }
     pub fn snapshot(&self) -> LiveSession {
@@ -148,6 +157,15 @@ impl Controller {
     }
     fn check_editable(&self, profile: &str) -> Result<(), String> {
         if self
+            .enrollment
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|operation| operation.profile_id == profile)
+        {
+            return Err("OTP 注册尚未完成，请等待或取消后再编辑".into());
+        }
+        if self
             .active
             .lock()
             .unwrap()
@@ -170,14 +188,36 @@ impl Controller {
         profile.normalize_server()?;
         profile.validate()?;
         let password = updates.password.take().map(Zeroizing::new);
-        let seed = updates.totp_secret.take().map(Zeroizing::new);
+        let seed = updates.otp_secret.take().map(Zeroizing::new);
         let proxy_password = updates.proxy_password.take().map(Zeroizing::new);
         for secret in [&password, &seed, &proxy_password].into_iter().flatten() {
             self.logs.secret(secret);
         }
         let mut changes = vec![];
         let prior_password = self.vault.get(&profile.id, "password")?;
-        let prior_seed = self.vault.get(&profile.id, "totp")?;
+        let previous = self
+            .db
+            .lock()
+            .unwrap()
+            .profiles()?
+            .into_iter()
+            .find(|p| p.id == profile.id);
+        let same_account = previous
+            .as_ref()
+            .is_some_and(|old| old.server == profile.server && old.username == profile.username);
+        let prior_seed =
+            if same_account && previous.as_ref().is_some_and(|old| old.otp_secret_stored) {
+                self.vault.get(&profile.id, "totp")?
+            } else {
+                None
+            };
+        profile.otp_parameters = previous
+            .as_ref()
+            .filter(|_| same_account)
+            .and_then(|old| old.otp_parameters.clone());
+        profile.otp_pending = previous
+            .as_ref()
+            .is_some_and(|old| same_account && old.otp_pending);
         let prior_proxy = self.vault.get(&profile.id, "proxy")?;
         let next_password = if !profile.save_password {
             None
@@ -189,8 +229,14 @@ impl Controller {
         };
         let next_seed = if !profile.two_factor {
             None
-        } else if let Some(seed) = seed.filter(|s| !s.is_empty()) {
-            Some(SecretString::from(totp::normalize(&seed)?.to_string()))
+        } else if let Some(seed) = seed {
+            profile.otp_parameters = None;
+            profile.otp_pending = false;
+            if seed.is_empty() {
+                None
+            } else {
+                Some(SecretString::from(totp::normalize(&seed)?.to_string()))
+            }
         } else {
             prior_seed
         };
@@ -202,15 +248,19 @@ impl Controller {
                 .map(|s| SecretString::from(s.to_string()))
                 .or(prior_proxy)
         };
-        if profile.two_factor && profile.auto_totp && next_seed.is_none() {
-            return Err("启用自动认证前请填写 BASE32 密钥".into());
-        }
         profile.password_stored = next_password.is_some();
-        profile.totp_stored = next_seed.is_some();
+        profile.otp_secret_stored = next_seed.is_some();
+        if !profile.two_factor {
+            profile.otp_pending = false;
+            profile.otp_parameters = None;
+        }
         profile.proxy_password_stored = next_proxy.is_some();
         changes.push(("password", next_password));
         changes.push(("totp", next_seed));
         changes.push(("proxy", next_proxy));
+        if !profile.otp_pending {
+            changes.push(("totp-pending", None));
+        }
         vault::transaction(&*self.vault, &profile.id, changes, || {
             self.db.lock().unwrap().save_profile(&profile)
         })?;
@@ -225,7 +275,12 @@ impl Controller {
         vault::transaction(
             &*self.vault,
             id,
-            vec![("password", None), ("totp", None), ("proxy", None)],
+            vec![
+                ("password", None),
+                ("totp", None),
+                ("totp-pending", None),
+                ("proxy", None),
+            ],
             || self.db.lock().unwrap().delete_profile(id),
         )?;
         self.db.lock().unwrap().profiles()
@@ -248,36 +303,12 @@ impl Controller {
         }
         Ok(())
     }
-    pub fn start(self: &Arc<Self>, id: &str) -> Result<(), String> {
-        let _operation = self.configuration.lock().unwrap();
-        let mut active = self.active.lock().unwrap();
-        if self.lifecycle.state() != "idle" {
-            return Err("关闭选择、退出确认或清理期间不能开始新的连接".into());
-        }
-        if active.is_some() {
-            return Err("已有配置正在连接或断开，请等待当前会话结束".into());
-        }
-        if !crate::platform::administrator() {
-            return Err(
-                "连接 VPN 需要管理员/root 权限。请退出后以管理员身份重新运行客户端。".into(),
-            );
-        }
-        let profile = self.db.lock().unwrap().profile(id)?;
-        profile.validate()?;
-        let provider = Arc::new(DesktopPassword {
-            owner: Arc::downgrade(self),
-            profile: profile.clone(),
-            password: Mutex::new(None),
-        });
-        let mut config = ClientConfig::new(
-            &profile.server,
-            AuthConfig::DeferredPassword {
-                username: profile.username.clone(),
-                authgroup: profile.authgroup.clone(),
-                provider,
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    pub(super) fn client_config(
+        &self,
+        profile: &Profile,
+        auth: AuthConfig,
+    ) -> Result<ClientConfig, String> {
+        let mut config = ClientConfig::new(&profile.server, auth).map_err(|e| e.to_string())?;
         config.tls.backend = profile.tls_backend;
         config.tls.insecure = profile.insecure;
         config.tls.ca_file = (!profile.ca_file.is_empty()).then(|| profile.ca_file.clone().into());
@@ -293,7 +324,7 @@ impl Controller {
             proxy
                 .set_username(&profile.proxy_username)
                 .map_err(|_| "代理用户名无效")?;
-            if let Some(secret) = self.vault.get(id, "proxy")? {
+            if let Some(secret) = self.vault.get(&profile.id, "proxy")? {
                 self.logs.secret(secret.expose_secret());
                 proxy
                     .set_password(Some(secret.expose_secret()))
@@ -330,6 +361,48 @@ impl Controller {
             .iter()
             .map(|r| r.parse().map_err(|_| "排除路由无效"))
             .collect::<Result<_, _>>()?;
+        Ok(config)
+    }
+    pub fn start(self: &Arc<Self>, id: &str) -> Result<(), String> {
+        let _operation = self.configuration.lock().unwrap();
+        let mut active = self.active.lock().unwrap();
+        if self.lifecycle.state() != "idle" {
+            return Err("关闭选择、退出确认或清理期间不能开始新的连接".into());
+        }
+        if active.is_some() {
+            return Err("已有配置正在连接或断开，请等待当前会话结束".into());
+        }
+        if self.enrollment.lock().unwrap().is_some() {
+            return Err("请先等待 OTP 注册完成".into());
+        }
+        if !crate::platform::administrator() {
+            return Err(
+                "连接 VPN 需要管理员/root 权限。请退出后以管理员身份重新运行客户端。".into(),
+            );
+        }
+        let profile = self.db.lock().unwrap().profile(id)?;
+        profile.validate()?;
+        if profile.two_factor
+            && (profile.otp_pending
+                || (profile.otp_mode == OtpMode::Automatic && !profile.otp_secret_stored))
+        {
+            return Err(
+                "请先完成 OTP 注册；如需手动输入验证码，请选择手动模式并移除待注册密钥".into(),
+            );
+        }
+        let provider = Arc::new(DesktopPassword {
+            owner: Arc::downgrade(self),
+            profile: profile.clone(),
+            password: Mutex::new(None),
+        });
+        let config = self.client_config(
+            &profile,
+            AuthConfig::DeferredPassword {
+                username: profile.username.clone(),
+                authgroup: profile.authgroup.clone(),
+                provider,
+            },
+        )?;
         let client = VpnClient::new(config).map_err(|e| self.logs.redact(&e.to_string()))?;
         let handle = client.handle();
         let events = handle.subscribe();
@@ -456,6 +529,7 @@ impl Controller {
         let _ = done.send(true);
     }
     pub async fn disconnect(&self) {
+        self.cancel_otp_enrollment().await;
         let active = self
             .active
             .lock()
@@ -506,7 +580,7 @@ impl PasswordProvider for DesktopPassword {
         } else {
             None
         };
-        let needs_otp = self.profile.two_factor && !self.profile.auto_totp;
+        let needs_otp = self.profile.two_factor && !self.profile.otp_secret_stored;
         let mut manual_otp = Zeroizing::new(String::new());
         if password.is_none() || needs_otp {
             let request = CredentialRequest {
@@ -556,7 +630,7 @@ impl PasswordProvider for DesktopPassword {
         if !self.profile.two_factor {
             return Ok(password);
         }
-        let code = if self.profile.auto_totp {
+        let code = if self.profile.otp_secret_stored {
             let vault = owner.vault.clone();
             let id = self.profile.id.clone();
             let seed = tauri::async_runtime::spawn_blocking(move || vault.get(&id, "totp"))
@@ -565,22 +639,24 @@ impl PasswordProvider for DesktopPassword {
                 .map_err(VpnError::Config)?
                 .ok_or_else(|| VpnError::Config("系统密钥库中没有此配置的 BASE32 密钥".into()))?;
             owner.logs.secret(seed.expose_secret());
-            let remaining = self.profile.totp_period - (now_ms() / 1000 % self.profile.totp_period);
-            if remaining <= 2 {
+            let parameters = tokio::select! {
+                _ = challenge.cancellation.cancelled() => return Err(VpnError::Cancelled),
+                parameters = owner.otp_parameters(&self.profile) => parameters.map_err(VpnError::Config)?,
+            };
+            let offset = parameters.time_offset_seconds.unwrap_or(0);
+            let time = totp::adjusted_time(now_ms(), offset).map_err(VpnError::Config)?;
+            let remaining = parameters.period - (time % parameters.period);
+            if remaining <= 2.min(parameters.period / 4) {
                 tokio::select! { _ = challenge.cancellation.cancelled() => return Err(VpnError::Cancelled), _ = tokio::time::sleep(Duration::from_secs(remaining)) => {} }
             }
             totp::code(
                 seed.expose_secret(),
-                &self.profile.totp_algorithm,
-                self.profile.totp_digits,
-                self.profile.totp_period,
-                now_ms() / 1000,
+                parameters.period,
+                totp::adjusted_time(now_ms(), offset).map_err(VpnError::Config)?,
             )
             .map_err(VpnError::Config)?
         } else {
-            if manual_otp.len() != self.profile.totp_digits as usize
-                || !manual_otp.bytes().all(|b| b.is_ascii_digit())
-            {
+            if manual_otp.len() != 6 || !manual_otp.bytes().all(|b| b.is_ascii_digit()) {
                 return Err(VpnError::Config("验证码位数或格式不正确".into()));
             }
             manual_otp

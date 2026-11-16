@@ -7,7 +7,7 @@ use url::Url;
 
 #[derive(Clone)]
 pub enum AuthConfig {
-    /// No credentials; usable for TLS probes only.
+    /// No credentials; usable for TLS probes and public OTP parameter discovery.
     None,
     Password {
         username: String,

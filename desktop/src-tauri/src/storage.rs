@@ -21,6 +21,7 @@ impl Database {
                 bytes_received INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL);
             UPDATE sessions SET ended_at=updated_at, state='interrupted' WHERE ended_at IS NULL;")
             .map_err(|_| "数据库建表或迁移失败")?;
+        migrate_otp_profiles(&connection)?;
         Ok(Self(connection))
     }
     pub fn profiles(&self) -> Result<Vec<Profile>> {
@@ -115,9 +116,126 @@ impl Database {
     }
 }
 
+fn migrate_otp_profiles(connection: &Connection) -> Result<()> {
+    let mut query = connection
+        .prepare("SELECT id,data FROM profiles")
+        .map_err(|_| "OTP 配置迁移失败")?;
+    let rows = query
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|_| "OTP 配置迁移失败")?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|_| "OTP 配置迁移失败")?;
+    drop(query);
+    for (id, json) in rows {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&json).map_err(|_| "配置数据损坏")?;
+        let object = value.as_object_mut().ok_or("配置数据损坏")?;
+        if !object.contains_key("autoTotp") && !object.contains_key("totpAlgorithm") {
+            continue;
+        }
+        let auto = object
+            .remove("autoTotp")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let standard = object
+            .remove("totpAlgorithm")
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .as_deref()
+            == Some("SHA1")
+            && object.get("totpDigits").and_then(|v| v.as_u64()) == Some(6);
+        object.remove("totpDigits");
+        let period = object
+            .remove("totpPeriod")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(30);
+        let stored = object
+            .remove("totpStored")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        object.insert("otpMode".into(), "manual".into());
+        object.insert(
+            "otpSecretStored".into(),
+            (auto && standard && stored).into(),
+        );
+        object.insert(
+            "otpParameters".into(),
+            if auto && standard && stored {
+                serde_json::json!({"period":period.clamp(1,300),"time_offset_seconds":0})
+            } else {
+                serde_json::Value::Null
+            },
+        );
+        object.insert("otpPending".into(), false.into());
+        let profile: Profile = serde_json::from_value(value).map_err(|_| "OTP 配置迁移失败")?;
+        connection
+            .execute(
+                "UPDATE profiles SET data=?2 WHERE id=?1",
+                params![
+                    id,
+                    serde_json::to_string(&profile).map_err(|_| "OTP 配置迁移失败")?
+                ],
+            )
+            .map_err(|_| "OTP 配置迁移失败")?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_otp_fields_are_removed_without_losing_accounts_or_supported_keys() {
+        for standard in [true, false] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("migration.sqlite3");
+            let db = Database::open(&path).unwrap();
+            let mut legacy: serde_json::Value =
+                serde_json::from_str(include_str!("../../fixtures/profile.json")).unwrap();
+            let object = legacy.as_object_mut().unwrap();
+            for key in ["otpMode", "otpSecretStored", "otpParameters", "otpPending"] {
+                object.remove(key);
+            }
+            object.insert("autoTotp".into(), true.into());
+            object.insert("totpStored".into(), true.into());
+            object.insert(
+                "totpAlgorithm".into(),
+                if standard { "SHA1" } else { "SHA512" }.into(),
+            );
+            object.insert("totpDigits".into(), 6.into());
+            object.insert("totpPeriod".into(), 60.into());
+            let id = legacy["id"].as_str().unwrap().to_owned();
+            let username = legacy["username"].as_str().unwrap().to_owned();
+            db.0.execute(
+                "INSERT INTO profiles VALUES (?1,?2,1)",
+                params![id, legacy.to_string()],
+            )
+            .unwrap();
+            drop(db);
+            let db = Database::open(&path).unwrap();
+            let profile = db.profile(&id).unwrap();
+            assert_eq!(profile.username, username);
+            assert!(profile.two_factor);
+            assert_eq!(profile.otp_secret_stored, standard);
+            assert!(profile.otp_mode == crate::model::OtpMode::Manual);
+            let json = serde_json::to_value(&profile).unwrap();
+            for key in [
+                "autoTotp",
+                "totpStored",
+                "totpAlgorithm",
+                "totpDigits",
+                "totpPeriod",
+            ] {
+                assert!(json.get(key).is_none());
+            }
+            if standard {
+                assert_eq!(profile.otp_parameters.unwrap().period, 60);
+            }
+            drop(db);
+            assert_eq!(Database::open(&path).unwrap().profiles().unwrap().len(), 1);
+        }
+    }
     #[test]
     fn sessions_are_checkpointed_without_double_counting_and_recovered_after_restart() {
         let directory = tempfile::tempdir().unwrap();
