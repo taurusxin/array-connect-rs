@@ -38,6 +38,9 @@ struct Options {
     redirect_cross_origin: bool,
     mute_dpd: bool,
     json_trailers: bool,
+    clear_cookies: bool,
+    cleared_session_only: bool,
+    invalid_cookie_domain: bool,
 }
 struct Mock {
     address: SocketAddr,
@@ -177,12 +180,21 @@ async fn serve(
         if options.reject_login {
             tls.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
                 .await?;
+        } else if options.cleared_session_only {
+            tls.write_all(b"HTTP/1.1 200 OK\r\nSet-Cookie: ANsessionold=discarded; Max-Age=0; Path=/; Secure\r\nSet-Cookie: ANsessionempty=; Path=/; Secure\r\nContent-Length: 0\r\n\r\n").await?;
+        } else if options.invalid_cookie_domain {
+            tls.write_all(format!("HTTP/1.1 200 OK\r\nSet-Cookie: ANsession999={COOKIE}; Domain=private.example.invalid; Path=/; Secure\r\nContent-Length: 0\r\n\r\n").as_bytes()).await?;
         } else if options.redirect_cross_origin {
             tls.write_all(b"HTTP/1.1 302 Found\r\nLocation: https://other.invalid/steal\r\nContent-Length: 0\r\n\r\n").await?;
         } else {
             // Echo a secret in an unrelated header/body to exercise log redaction.
             let response = format!(
-                "HTTP/1.1 302 Found\r\nLocation: /portal\r\nSet-Cookie: ANsession999={COOKIE}; Path=/portal; Secure; HttpOnly\r\nX-Echo: {COOKIE}\r\nContent-Length: 0\r\n\r\n"
+                "HTTP/1.1 302 Found\r\nLocation: /portal\r\n{}Set-Cookie: ANsession999={COOKIE}; Path=/portal; Secure; HttpOnly\r\nX-Echo: {COOKIE}\r\nContent-Length: 0\r\n\r\n",
+                if options.clear_cookies {
+                    "Set-Cookie: old=; Max-Age=0; Path=/; Secure\r\n"
+                } else {
+                    ""
+                }
             );
             tls.write_all(response.as_bytes()).await?;
         }
@@ -836,6 +848,37 @@ async fn openssl_backend_auth_tunnel_and_pin_policy() {
     assert_eq!(mock.logouts.load(Ordering::SeqCst), 1);
 }
 
+#[tokio::test]
+async fn cookie_cleanup_without_a_new_nonempty_session_is_an_authentication_failure() {
+    let mock = Mock::start(Options {
+        cleared_session_only: true,
+        ..Default::default()
+    })
+    .await;
+    assert!(matches!(
+        VpnClient::new(mock.config()).unwrap().authenticate().await,
+        Err(VpnError::Authentication)
+    ));
+}
+
+#[tokio::test]
+async fn password_login_accepts_old_cookie_cleanup_before_the_new_session_cookie() {
+    let mock = Mock::start(Options {
+        clear_cookies: true,
+        ..Default::default()
+    })
+    .await;
+    for _ in 0..3 {
+        let cookie = VpnClient::new(mock.config())
+            .unwrap()
+            .authenticate()
+            .await
+            .unwrap();
+        assert_eq!(cookie.expose_secret(), format!("ANsession999={COOKIE}"));
+    }
+    assert_eq!(mock.logins.load(Ordering::SeqCst), 3);
+}
+
 #[cfg(feature = "cli")]
 #[tokio::test]
 async fn cli_tls_probe_needs_no_credentials_and_sends_no_http() {
@@ -1086,7 +1129,11 @@ async fn trace_logs_never_contain_secrets() {
             Guard(self.0.clone())
         }
     }
-    let mock = Mock::start(Options::default()).await;
+    let mock = Mock::start(Options {
+        clear_cookies: true,
+        ..Default::default()
+    })
+    .await;
     let captured = Capture(Arc::new(Mutex::new(vec![])));
     let subscriber = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::TRACE)
@@ -1102,9 +1149,23 @@ async fn trace_logs_never_contain_secrets() {
         let session = client.connect_with(Box::new(network)).await.unwrap();
         session.disconnect().await.unwrap();
     }
+    let invalid = Mock::start(Options {
+        invalid_cookie_domain: true,
+        ..Default::default()
+    })
+    .await;
+    let error = VpnClient::new(invalid.config())
+        .unwrap()
+        .authenticate()
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("domain mismatch"));
     let logs = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
     assert!(logs.contains("HTTP response"));
     assert!(logs.contains("Array configuration"));
+    assert!(logs.contains("processed expired Set-Cookie"));
+    assert!(logs.contains("domain mismatch"));
     assert!(!logs.contains(PASSWORD));
     assert!(!logs.contains(COOKIE));
+    assert!(!logs.contains("private.example.invalid"));
 }

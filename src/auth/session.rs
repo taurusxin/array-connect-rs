@@ -4,13 +4,13 @@ use crate::{
     client::{Shared, bounded},
     transport::{self, TlsContext, Wire},
 };
-use cookie_store::CookieStore;
+use cookie_store::{Cookie, CookieError, CookieStore, StoreAction};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::time::Instant;
 use url::Url;
 
-use super::cookie::validate_cookie;
+use super::cookie::{invalid_set_cookie, validate_cookie};
 use crate::transport::http::{Response, discard_body, headers};
 
 const LOGIN: &str = "/prx/000/http/localhost/login";
@@ -64,26 +64,38 @@ impl AuthSession {
             .iter()
             .filter(|(k, _)| k.eq_ignore_ascii_case("set-cookie"))
         {
-            self.jar
-                .parse(value, url)
-                .map_err(|_| VpnError::Protocol("invalid Set-Cookie".into()))?;
-            if let Some(explicit) = &self.explicit {
-                let pair = value.split(';').next().unwrap_or("");
-                if let Some((name, new_value)) = pair.split_once('=')
-                    && name.starts_with("ANsession")
-                {
-                    let mut pairs = explicit
-                        .expose_secret()
-                        .split(';')
-                        .map(str::trim)
-                        .filter(|old| old.split_once('=').is_none_or(|(key, _)| key != name))
-                        .map(str::to_owned)
-                        .collect::<Vec<_>>();
-                    if !new_value.is_empty() {
-                        pairs.push(pair.to_owned());
-                    }
-                    self.explicit = Some(pairs.join("; ").into());
+            let cookie = Cookie::parse(value.as_str(), url).map_err(invalid_set_cookie)?;
+            let name = cookie.name().to_owned();
+            let new_value = zeroize::Zeroizing::new(cookie.value().to_owned());
+            let was_expired = cookie.is_expired();
+            // An expired cookie is a deletion, including when the cookie jar
+            // has no matching entry (normal for a fresh OTP parameter request).
+            let expired = match self.jar.insert(cookie.into_owned(), url) {
+                Ok(StoreAction::ExpiredExisting) | Err(CookieError::Expired) => true,
+                Ok(_) => was_expired,
+                Err(error) => return Err(invalid_set_cookie(error)),
+            };
+            if expired {
+                tracing::debug!(
+                    status = response.status,
+                    array_session = name.starts_with("ANsession"),
+                    "processed expired Set-Cookie (value redacted)"
+                );
+            }
+            if let Some(explicit) = &self.explicit
+                && name.starts_with("ANsession")
+            {
+                let mut pairs = explicit
+                    .expose_secret()
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|old| old.split_once('=').is_none_or(|(key, _)| key != name))
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                if !expired && !new_value.is_empty() {
+                    pairs.push(format!("{name}={}", new_value.as_str()));
                 }
+                self.explicit = Some(pairs.join("; ").into());
             }
         }
         Ok(())
@@ -234,7 +246,7 @@ impl AuthSession {
             let cookie = self
                 .jar
                 .iter_unexpired()
-                .filter(|c| c.name().starts_with("ANsession"))
+                .filter(|c| c.name().starts_with("ANsession") && !c.value().is_empty())
                 .map(|c| format!("{}={}", c.name(), c.value()))
                 .collect::<Vec<_>>()
                 .join("; ");

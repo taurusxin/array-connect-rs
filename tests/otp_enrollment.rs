@@ -21,6 +21,7 @@ struct Options {
     bad_time: bool,
     oversized: bool,
     stall: bool,
+    clear_cookies: bool,
 }
 struct Gateway {
     server: String,
@@ -132,7 +133,14 @@ impl Gateway {
                             }
                             (
                                 200,
-                                "Set-Cookie: ANsessionotp=stage1; Path=/; Secure\r\n".to_owned(),
+                                format!(
+                                    "{}Set-Cookie: ANsessionotp=stage1; Path=/; Secure\r\n",
+                                    if options.clear_cookies {
+                                        "Set-Cookie: old=; Max-Age=0; Path=/; Secure\r\nSet-Cookie: older=nonempty; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; Secure\r\n"
+                                    } else {
+                                        ""
+                                    }
+                                ),
                                 "var _AN_dyncode_interval = '90';".to_owned(),
                                 true,
                                 false,
@@ -268,6 +276,25 @@ impl Gateway {
             .filter(|(m, _)| m == "POST")
             .count()
     }
+}
+
+#[tokio::test]
+async fn otp_parameter_discovery_and_registration_accept_old_cookie_cleanup() {
+    let gateway = Gateway::start(Options {
+        clear_cookies: true,
+        ..Default::default()
+    })
+    .await;
+    for _ in 0..3 {
+        let parameters = gateway.client(true).otp_parameters().await.unwrap();
+        assert_eq!(parameters.period, 90);
+        assert!((119..=121).contains(&parameters.time_offset_seconds.unwrap()));
+    }
+    assert_eq!(gateway.posts(), 0);
+    let enrolled = gateway.client(true).enroll_otp(SEED.into()).await.unwrap();
+    assert_eq!(enrolled.parameters.period, 90);
+    assert_eq!(gateway.posts(), 1);
+    assert_eq!(gateway.requests.lock().unwrap().len(), 11);
 }
 
 #[tokio::test]
