@@ -1,6 +1,6 @@
 [package]
 name = "arraysslvpn"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 license = "LGPL-2.1-only"
 description = "An asynchronous Array Networks SSL VPN client library and CLI"
