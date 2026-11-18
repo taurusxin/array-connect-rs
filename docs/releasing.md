@@ -4,12 +4,11 @@
 
 ## 工作流
 
-- `ci.yml`：分支推送、PR 和手动运行时，统一检查核心库、CLI、前端和三平台 Tauri 应用。构建调试应用验证清单，不生成安装包。
-- `release.yml`：推送 `v*` tag 时触发。先验证 tag 与版本元数据，再分别打包 CLI 和桌面客户端；所有平台成功且产物齐全后，统一上传到同一个 GitHub Release，并生成 `SHA256SUMS`。
+`release.yml` 在推送 `v*` tag 时触发。工作流先校验版本和发布脚本，再打包三平台 CLI 和桌面客户端。所有产物齐全并通过发布校验后，统一上传到同一个 GitHub Release，并生成 `SHA256SUMS`。日常开发在本地运行格式、Clippy 和测试检查。
 
-发布工作流不修改版本或创建 tag。`v1.2.3-rc.1` 等预发布 tag 会创建 GitHub Prerelease；普通版本 tag 创建正式 Release。单个平台失败时不会发布不完整的新 Release。失败后可在 Actions 中重跑，产物上传使用同一个 tag。
+推送 `v1.2.3-rc.1` 等预发布 tag 会创建 GitHub Prerelease，普通版本 tag 创建正式 Release。单个平台失败时，发布步骤等待全部产物验证通过。偶发构建失败可在 Actions 中重跑原任务。
 
-已有 tag 未触发或需要用修复后的工作流补跑时，可在 Release 的「Run workflow」中选择 `main` 并填写已有 tag，也可执行 `gh workflow run release.yml --ref main -f tag=v0.2.0`。工作流先检出该 tag 并校验版本，然后将所有构建和发布说明固定到该 tag 的提交；不会将 main 的应用源码作为旧版本发布，也不移动或重建已有 tag。
+修复工作流后，可在 Release 的「Run workflow」中选择 `main` 并填写已有 tag，也可执行 `gh workflow run release.yml --ref main -f tag=v0.5.0`。应用源码和发布说明由输入的 tag 固定。macOS 网络服务验签脚本使用本次工作流所在提交中的版本，因此验签修复也适用于已有 tag。
 
 仓库通过 `.gitattributes` 将源码检出为 LF，并在桌面端明确 Prettier 的 LF 配置，避免 Windows 的 `core.autocrlf` 导致仅该平台格式检查失败。
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 app=$1
-desktop=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+desktop=${2:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 helper="$app/Contents/Resources/array-connect-vpnd"
 [[ -x "$helper" ]]
 [[ $(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist") == "com.taurusxin.arrayconnect" ]]
@@ -12,7 +12,7 @@ actual=$(shasum -a 256 "$helper")
 LC_ALL=C grep -aFq "$expected" "$app/Contents/MacOS/array-connect"
 plutil -lint "$desktop/../src/network/macos_service/vpnd.plist"
 codesign --verify --deep --strict "$app"
-codesign --verify --strict -R='=identifier "com.taurusxin.arrayconnect.vpnd"' "$helper"
+codesign --verify --strict -R='identifier "com.taurusxin.arrayconnect.vpnd"' "$helper"
 
 app_signature=$(codesign -dv --verbose=4 "$app" 2>&1)
 helper_signature=$(codesign -dv --verbose=4 "$helper" 2>&1)

@@ -260,14 +260,26 @@ jobs:
             exit 1
           fi
           pnpm tauri build --ci --target "$RELEASE_TARGET" --bundles "$RELEASE_BUNDLES" -- --locked
+      - name: Load the macOS verifier from the workflow revision
+        if: runner.os == 'macOS' && hashFiles('src/network/macos_service/vpnd.plist') != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: target/release-workflow
+          sparse-checkout: desktop/scripts/verify-macos-network-service.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Verify macOS network service packaging and signatures
         if: runner.os == 'macOS'
         shell: bash
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
         run: |
-          if [[ -f desktop/scripts/verify-macos-network-service.sh ]]; then
-            bash desktop/scripts/verify-macos-network-service.sh "desktop/src-tauri/target/$RELEASE_TARGET/release/bundle/macos/Array Connect.app"
+          app="desktop/src-tauri/target/$RELEASE_TARGET/release/bundle/macos/Array Connect.app"
+          if [[ -f src/network/macos_service/vpnd.plist ]]; then
+            bash target/release-workflow/desktop/scripts/verify-macos-network-service.sh "$app" "$PWD/desktop"
+          elif [[ -f desktop/scripts/verify-macos-network-service.sh ]]; then
+            bash desktop/scripts/verify-macos-network-service.sh "$app"
           fi
       - name: Build Windows desktop installer with embedded OpenSSL
         if: runner.os == 'Windows'

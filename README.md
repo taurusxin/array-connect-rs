@@ -236,7 +236,7 @@ sudo -E env ARRAYSSLVPN_PRIVILEGED_TEST=1 cargo test --test system_network -- --
 
 该检查创建临时 TUN 和 TEST-NET 路由，验证重复清理，不修改 DNS。DNS 需要配合真实网关手动验收。
 
-三平台原生 CI 配置位于 [.github/workflows/ci.yml](.github/workflows/ci.yml)，统一检查核心库、CLI、前端和 Tauri 桌面应用。Windows、Linux、macOS 的核心库检查已通过；Linux/macOS 桌面编译及模拟测试已通过。使用者已在本机验证真实网关连接；真实 TUN/DNS 的独立集成检查及长期稳定性仍待验证。
+核心库、CLI、前端和 Tauri 桌面应用的开发检查可在本地执行。发布时，[Release 工作流](.github/workflows/release.yml) 构建 Windows、Linux 和 macOS 产物并运行发布校验。使用者已在本机验证真实网关连接，真实 TUN/DNS 的独立集成检查及长期稳定性仍待验证。
 
 真实网关联调建议先用 `--authenticate -vv` 确认 TLS/登录，再连接并检查内网 IP、内网域名、持续传输、断网重连及退出后的路由/DNS 恢复。报错时可分享脱敏日志，无需提供密码/Cookie。
 
@@ -244,7 +244,7 @@ sudo -E env ARRAYSSLVPN_PRIVILEGED_TEST=1 cargo test --test system_network -- --
 
 桌面安装包和 CLI 压缩包可从 [GitHub Releases](https://github.com/taurusxin/array-connect-rs/releases) 下载。
 
-桌面客户端和命令行程序统一在推送 `v*` 版本 tag 时打包并上传到同一个 GitHub Release；普通分支推送和 PR 只运行检查，不生成安装包或发布 Release。仅在明确要求发布新版时递增版本并推送 tag，流程与平台产物见 [发布说明](docs/releasing.md)。
+在 `main` 完成开发和本地检查后，推送 `v*` 版本 tag 会启动 Release 工作流。桌面客户端和命令行程序会打包并上传到同一个 GitHub Release。仅在明确要求发布新版时递增版本并推送 tag，流程与平台产物见 [发布说明](docs/releasing.md)。
 
 ## 协议依据与许可证
 
