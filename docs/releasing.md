@@ -32,10 +32,10 @@
 
 macOS 安装包内置 `array-connect-vpnd`。服务在打包前签名，GUI 编译时写入其 SHA-256，并在安装时校验。ad-hoc 构建也提供系统管理员授权安装流程。可选的 Developer ID 签名仍使用 `APPLE_SIGNING_IDENTITY`、`APPLE_CERTIFICATE` 和 `APPLE_CERTIFICATE_PASSWORD` 三个仓库 Secret。配置后，CI 先导入证书以签署资源中的服务，再由 Tauri 签署应用。设置 `APPLE_ID`、`APPLE_PASSWORD`（Apple App 专用密码）和 `APPLE_TEAM_ID` 可启用公证。[Tauri macOS 签名与公证](https://v2.tauri.app/distribute/sign/macos/)
 
-在 macOS 的 `desktop` 目录运行以下命令，可检查应用签名和内嵌服务的 SHA-256：
+macOS 发布任务同时构建 `app` 和 `dmg`。显式指定 `app` 会保留应用包供签名和内嵌服务 SHA-256 校验，发布任务上传 DMG。在 macOS 的 `desktop` 目录可执行以下检查：
 
 ```sh
-pnpm tauri build --ci --bundles dmg -- --locked
+pnpm tauri build --ci --bundles app,dmg -- --locked
 bash scripts/verify-macos-network-service.sh 'src-tauri/target/release/bundle/macos/Array Connect.app'
 ```
 

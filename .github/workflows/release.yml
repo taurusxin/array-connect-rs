@@ -145,10 +145,11 @@ jobs:
             bundles: deb,appimage
           - os: macos-latest
             target: aarch64-apple-darwin
-            bundles: dmg
+            # Tauri removes the .app after a DMG-only build.
+            bundles: app,dmg
           - os: macos-latest
             target: x86_64-apple-darwin
-            bundles: dmg
+            bundles: app,dmg
     runs-on: ${{ matrix.os }}
     env:
       RELEASE_TARGET: ${{ matrix.target }}
