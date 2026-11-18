@@ -104,7 +104,7 @@ export const useApp = create<Store>((set, get) => ({
   wintunAvailable: true,
   storagePath: "",
   platform: "",
-  version: "0.3.1",
+  version: "0.4.0",
   busy: false,
   error: null,
   notice: null,
