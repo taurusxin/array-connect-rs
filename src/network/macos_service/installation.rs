@@ -1,10 +1,11 @@
 use crate::{Result, VpnError};
 use serde::{Deserialize, Serialize};
 use std::{
-    ffi::{CStr, c_char, c_int},
+    ffi::{CStr, CString, c_char, c_int},
     fs::{self, DirBuilder, File, OpenOptions},
     io::{self, Read, Write},
     os::unix::{
+        ffi::OsStrExt,
         fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink},
         io::AsRawFd,
     },
@@ -332,6 +333,32 @@ mod tests {
     use std::cell::Cell;
 
     #[test]
+    fn active_release_link_is_readable_by_normal_users() {
+        let root = std::env::temp_dir().join(format!(
+            "array-connect-vpnd-permissions-{:016x}",
+            rand::random::<u64>()
+        ));
+        let target = Path::new("build-0000000000000001");
+        let release = root.join(target);
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&release).unwrap();
+        fs::set_permissions(&release, fs::Permissions::from_mode(0o700)).unwrap();
+
+        switch(&root, Some(target)).unwrap();
+        let link = root.join("current");
+        let mode = fs::symlink_metadata(&link).unwrap().mode();
+        let contents = fs::read_link(&link).unwrap();
+        let release_mode = fs::metadata(&release).unwrap().mode();
+        fs::remove_file(link).unwrap();
+        fs::remove_dir(release).unwrap();
+        fs::remove_dir(root).unwrap();
+
+        assert_eq!(mode & 0o777, 0o755);
+        assert_eq!(contents, target);
+        assert_eq!(release_mode & 0o777, 0o700);
+    }
+
+    #[test]
     fn failed_registration_restores_previous_helper() {
         let root = std::env::temp_dir().join(format!(
             "array-connect-vpnd-rollback-{:016x}",
@@ -378,8 +405,15 @@ fn switch(root: &Path, target: Option<&Path>) -> io::Result<()> {
         return fs::remove_file(current);
     };
     let tmp = root.join(format!(".current-{:016x}", rand::random::<u64>()));
+    let link = CString::new(tmp.as_os_str().as_bytes())?;
     symlink(target, &tmp)?;
-    let result = fs::rename(&tmp, current);
+    // The installer uses umask 077, but macOS readlink checks the symlink's
+    // permissions. Let the desktop user read it before publishing the link.
+    let result = if unsafe { libc::lchmod(link.as_ptr(), 0o755) } != 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        fs::rename(&tmp, current)
+    };
     if result.is_err() {
         let _ = fs::remove_file(tmp);
     }
