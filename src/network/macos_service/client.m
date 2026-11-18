@@ -1,5 +1,4 @@
 #include "bridge.h"
-#include <ServiceManagement/ServiceManagement.h>
 #include <fcntl.h>
 
 @interface ACLeaseLifetime : NSObject
@@ -12,64 +11,32 @@
 - (void)dealloc { self.releaseContext(self.context); }
 @end
 
-int ac_service_status(void) {
+int ac_protocol_version(void) {
+    return AC_PROTOCOL;
+}
+
+bool ac_app_cdhash(char *hash) {
     @autoreleasepool {
         if (@available(macOS 13.0, *)) {
-            NSBundle *bundle = NSBundle.mainBundle;
-            if (![bundle.bundleIdentifier isEqualToString:@AC_GUI_ID] ||
-                ac_signing_team(AC_GUI_ID) == nil) {
-                return AC_UNAVAILABLE;
-            }
-            SMAppService *service = [SMAppService daemonServiceWithPlistName:@AC_SERVICE_PLIST];
-            switch (service.status) {
-                case SMAppServiceStatusNotRegistered: return AC_NOT_REGISTERED;
-                case SMAppServiceStatusRequiresApproval: return AC_APPROVAL_REQUIRED;
-                case SMAppServiceStatusEnabled: return AC_ENABLED;
-                default: return AC_UNAVAILABLE;
-            }
+            return [NSBundle.mainBundle.bundleIdentifier isEqualToString:@AC_GUI_ID] &&
+                ac_current_cdhash(AC_GUI_ID, hash);
         }
-        return AC_UNAVAILABLE;
+        return false;
     }
 }
 
-int ac_service_authorize(char *error) {
-    @autoreleasepool {
-        if (@available(macOS 13.0, *)) {
-            int status = ac_service_status();
-            if (status == AC_NOT_REGISTERED) {
-                SMAppService *service = [SMAppService daemonServiceWithPlistName:@AC_SERVICE_PLIST];
-                NSError *cause = nil;
-                if (![service registerAndReturnError:&cause] &&
-                    service.status != SMAppServiceStatusRequiresApproval) {
-                    ac_error(error, cause.localizedDescription.UTF8String ?: "registration failed");
-                    return -1;
-                }
-                status = ac_service_status();
-            }
-            if (status == AC_APPROVAL_REQUIRED) {
-                [SMAppService openSystemSettingsLoginItems];
-                return 0;
-            }
-            if (status == AC_ENABLED) return 0;
-        }
-        ac_error(error, "网络服务需要 macOS 13 或更新系统及 Developer ID 签名的应用");
-        return -1;
-    }
-}
-
-void *ac_client_open(void *context, ac_callback failed, ac_callback releaseContext) {
+void *ac_client_open(const char *daemonHash, void *context, ac_callback failed,
+                     ac_callback releaseContext) {
     @autoreleasepool {
         ACLeaseLifetime *lifetime = [ACLeaseLifetime new];
         lifetime.context = context;
         lifetime.failed = failed;
         lifetime.releaseContext = releaseContext;
         if (@available(macOS 13.0, *)) {
-            NSString *team = ac_signing_team(AC_GUI_ID);
-            if (team == nil) return NULL;
             xpc_connection_t peer = xpc_connection_create_mach_service(
                 AC_SERVICE_ID, NULL, XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
             if (peer == NULL) return NULL;
-            NSString *requirement = ac_requirement(AC_SERVICE_ID, team);
+            NSString *requirement = ac_requirement(AC_SERVICE_ID, daemonHash);
             if (xpc_connection_set_peer_code_signing_requirement(peer, requirement.UTF8String) != 0) {
                 xpc_connection_cancel(peer);
                 return NULL;
@@ -115,16 +82,16 @@ int ac_client_request(void *handle, int operation, const uint8_t *data, size_t l
         }
         if (reply == NULL || xpc_get_type(reply) != XPC_TYPE_DICTIONARY) {
             xpc_connection_cancel(peer);
-            ac_error(error, "无法连接已授权的 macOS VPN 网络服务，请检查后台项目和应用签名");
+            ac_error(error, "无法连接已安装的 macOS VPN 网络服务");
             return -1;
+        }
+        if (xpc_dictionary_get_int64(reply, "version") != AC_PROTOCOL) {
+            ac_error(error, "macOS VPN 网络服务协议版本不匹配");
+            return AC_PROTOCOL_MISMATCH;
         }
         const char *cause = xpc_dictionary_get_string(reply, "error");
         if (cause != NULL) {
             ac_error(error, cause);
-            return -1;
-        }
-        if (xpc_dictionary_get_int64(reply, "version") != AC_PROTOCOL) {
-            ac_error(error, "macOS VPN 网络服务版本不匹配");
             return -1;
         }
         if (operation == AC_SETUP) {

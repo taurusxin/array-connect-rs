@@ -12,6 +12,12 @@ import {
 import { networkServiceLabels, type NetworkServiceStatus } from "@/lib/types";
 import { useApp } from "@/stores/app";
 
+const serviceActions = {
+  notInstalled: "安装网络服务",
+  upgradeRequired: "更新网络服务",
+  repairRequired: "重新安装网络服务",
+};
+
 export function NetworkServiceDialog({
   status,
   onDismiss,
@@ -19,9 +25,9 @@ export function NetworkServiceDialog({
   status: Exclude<NetworkServiceStatus, "enabled">;
   onDismiss: () => void;
 }) {
-  const { busy, error, authorizeNetworkService } = useApp();
+  const { busy, error, installNetworkService } = useApp();
   const [failed, setFailed] = useState(false);
-  const available = status !== "unavailable";
+  const action = status === "unavailable" ? null : serviceActions[status];
 
   return (
     <Dialog
@@ -40,12 +46,12 @@ export function NetworkServiceDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldAlert size={17} />
-            {available ? "需要管理员授权" : "VPN 网络服务不可用"}
+            {action ?? "VPN 网络服务不可用"}
           </DialogTitle>
           <DialogDescription>
-            {available
-              ? "请在 macOS 系统设置的「登录项与扩展」中允许 Array Connect 后台运行。系统要求时，请输入 Mac 管理员密码。批准后回到应用即可连接 VPN。"
-              : networkServiceLabels.unavailable}
+            {networkServiceLabels[status]}
+            {action &&
+              "请在 macOS 弹出的系统窗口中完成管理员认证。服务就绪后可直接连接 VPN。"}
           </DialogDescription>
         </DialogHeader>
         {failed && error && (
@@ -55,22 +61,22 @@ export function NetworkServiceDialog({
         )}
         <DialogFooter>
           <Button
-            variant={available ? "outline" : "default"}
+            variant={action ? "outline" : "default"}
             disabled={busy}
             onClick={onDismiss}
           >
-            {available ? "稍后" : "知道了"}
+            {action ? "稍后" : "知道了"}
           </Button>
-          {available && (
+          {action && (
             <Button
               disabled={busy}
               onClick={async () => {
                 setFailed(false);
-                setFailed(!(await authorizeNetworkService()));
+                setFailed(!(await installNetworkService()));
               }}
             >
               {busy && <LoaderCircle className="animate-spin" />}
-              {status === "notRegistered" ? "继续授权" : "打开系统设置"}
+              {busy ? "等待安装完成…" : action}
             </Button>
           )}
         </DialogFooter>

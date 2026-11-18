@@ -12,14 +12,15 @@
 #include <unistd.h>
 
 #define AC_GUI_ID "com.taurusxin.arrayconnect"
-#define AC_SERVICE_ID AC_GUI_ID ".network"
-#define AC_SERVICE_PLIST AC_SERVICE_ID ".plist"
-#define AC_PROTOCOL 1
+#define AC_SERVICE_ID AC_GUI_ID ".vpnd"
+#define AC_PROTOCOL 2
 #define AC_REQUEST_LIMIT (256 * 1024)
 #define AC_ERROR_LIMIT 512
+#define AC_CDHASH_BYTES 20
+#define AC_CDHASH_BUFFER (2 * AC_CDHASH_BYTES + 1)
 
 enum ac_operation { AC_PROBE, AC_SETUP, AC_CLEANUP };
-enum ac_status { AC_UNAVAILABLE, AC_NOT_REGISTERED, AC_APPROVAL_REQUIRED, AC_ENABLED };
+enum ac_request_result { AC_PROTOCOL_MISMATCH = -2 };
 typedef void (*ac_callback)(void *);
 typedef int (*ac_setup)(void *, const uint8_t *, size_t, int *, char *);
 typedef int (*ac_cleanup)(void *, char *);
@@ -28,48 +29,38 @@ static inline void ac_error(char *buffer, const char *message) {
     snprintf(buffer, AC_ERROR_LIMIT, "%s", message);
 }
 
-// Both sides pin an identifier and the Team ID of their own Developer ID
-// signature. A self-signed or ad-hoc binary cannot qualify.
-static inline NSString *ac_requirement(const char *identifier, NSString *team) {
+static inline NSString *ac_requirement(const char *identifier, const char *hash) {
     return [NSString stringWithFormat:
-        @"anchor apple generic and identifier \"%s\" and "
-         "certificate leaf[field.1.2.840.113635.100.6.1.13] exists and "
-         "certificate leaf[subject.OU] = \"%@\"", identifier, team];
+        @"identifier \"%s\" and cdhash H\"%s\"", identifier, hash];
 }
 
-static inline NSString *ac_signing_team(const char *self_identifier) {
+static inline bool ac_current_cdhash(const char *identifier, char *output) {
     SecCodeRef code = NULL;
+    if (SecCodeCopySelf(kSecCSDefaultFlags, &code) != errSecSuccess) return false;
     SecStaticCodeRef executable = NULL;
     CFDictionaryRef details = NULL;
-    OSStatus status = SecCodeCopySelf(kSecCSDefaultFlags, &code);
-    if (status == errSecSuccess) {
-        status = SecCodeCopyStaticCode(code, kSecCSDefaultFlags, &executable);
-    }
-    if (status == errSecSuccess) {
-        status = SecCodeCopySigningInformation(executable, kSecCSSigningInformation, &details);
-    }
-    NSString *team = nil;
-    if (status == errSecSuccess) {
+    bool valid = false;
+    if (SecCodeCopyStaticCode(code, kSecCSDefaultFlags, &executable) == errSecSuccess &&
+        SecCodeCopySigningInformation(executable, kSecCSSigningInformation, &details) == errSecSuccess) {
         NSDictionary *info = CFBridgingRelease(details);
-        NSString *value = info[(__bridge NSString *)kSecCodeInfoTeamIdentifier];
-        NSCharacterSet *invalid = [[NSCharacterSet characterSetWithCharactersInString:
-            @"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"] invertedSet];
-        if ([value isKindOfClass:[NSString class]] && value.length == 10 &&
-            [value rangeOfCharacterFromSet:invalid].location == NSNotFound) {
+        NSData *hash = info[(__bridge NSString *)kSecCodeInfoUnique];
+        if ([hash isKindOfClass:[NSData class]] && hash.length == AC_CDHASH_BYTES) {
+            const uint8_t *bytes = hash.bytes;
+            for (size_t i = 0; i < AC_CDHASH_BYTES; i++) {
+                snprintf(output + 2 * i, 3, "%02x", (unsigned)bytes[i]);
+            }
             SecRequirementRef requirement = NULL;
-            NSString *text = ac_requirement(self_identifier, value);
+            NSString *text = ac_requirement(identifier, output);
             if (SecRequirementCreateWithString((__bridge CFStringRef)text, kSecCSDefaultFlags,
                                                &requirement) == errSecSuccess) {
-                if (SecCodeCheckValidity(code, kSecCSDefaultFlags, requirement) == errSecSuccess) {
-                    team = value;
-                }
+                valid = SecCodeCheckValidity(code, kSecCSDefaultFlags, requirement) == errSecSuccess;
                 CFRelease(requirement);
             }
         }
     }
     if (executable != NULL) CFRelease(executable);
-    if (code != NULL) CFRelease(code);
-    return team;
+    CFRelease(code);
+    return valid;
 }
 
 #endif

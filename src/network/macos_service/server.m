@@ -52,12 +52,17 @@ static bool ac_console_user(xpc_connection_t peer) {
     return uid != 0 && uid == xpc_connection_get_euid(peer);
 }
 
-int ac_daemon_run(void *context, ac_setup setup, ac_cleanup cleanup) {
+bool ac_daemon_cdhash(char *hash) {
+    @autoreleasepool {
+        return ac_current_cdhash(AC_SERVICE_ID, hash);
+    }
+}
+
+int ac_daemon_run(const char *clientHash, void *context, ac_setup setup, ac_cleanup cleanup) {
     @autoreleasepool {
         if (@available(macOS 13.0, *)) {
-            NSString *team = ac_signing_team(AC_SERVICE_ID);
-            if (geteuid() != 0 || team == nil) return -1;
-            NSString *requirement = ac_requirement(AC_GUI_ID, team);
+            if (geteuid() != 0) return -1;
+            NSString *requirement = ac_requirement(AC_GUI_ID, clientHash);
             dispatch_queue_t queue = dispatch_queue_create(AC_SERVICE_ID, DISPATCH_QUEUE_SERIAL);
             static xpc_connection_t listener;
             listener = xpc_connection_create_mach_service(

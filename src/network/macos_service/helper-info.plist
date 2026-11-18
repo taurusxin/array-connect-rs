@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key>
-  <string>com.taurusxin.arrayconnect.network</string>
+  <string>com.taurusxin.arrayconnect.vpnd</string>
   <key>CFBundleName</key>
   <string>Array Connect VPN Network Service</string>
 </dict>

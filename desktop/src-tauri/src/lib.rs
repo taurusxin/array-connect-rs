@@ -71,7 +71,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap,
             commands::network_service_status,
-            commands::authorize_network_service,
+            commands::install_network_service,
             commands::save_profile,
             commands::delete_profile,
             commands::connect_profile,

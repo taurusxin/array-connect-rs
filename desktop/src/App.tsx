@@ -39,7 +39,12 @@ import { Profiles } from "@/pages/profiles";
 import { Logs } from "@/pages/logs";
 import { Preferences } from "@/pages/preferences";
 import { native } from "@/lib/api";
-import { networkServiceLabels, stateLabels, type Profile } from "@/lib/types";
+import {
+  networkServiceLabels,
+  stateLabels,
+  type NetworkServiceStatus,
+  type Profile,
+} from "@/lib/types";
 import { useApp } from "@/stores/app";
 
 const navigation = [
@@ -56,7 +61,8 @@ export function App() {
     null,
   );
   const [deleting, setDeleting] = useState<Profile | null>(null);
-  const [permissionDismissed, setPermissionDismissed] = useState(false);
+  const [dismissedPermission, setDismissedPermission] =
+    useState<NetworkServiceStatus | null>(null);
   useEffect(() => {
     void app.initialize();
     if (native) {
@@ -101,7 +107,7 @@ export function App() {
       : null;
   const permissionOpen =
     networkService !== null &&
-    !permissionDismissed &&
+    networkService !== dismissedPermission &&
     app.session.state === "Disconnected" &&
     app.exitState === "idle" &&
     !editor &&
@@ -240,13 +246,12 @@ export function App() {
                             ? networkServiceLabels[networkService]
                             : "连接 VPN 需要管理员/root 权限。请退出后以管理员身份运行。"}
                         </span>
-                        {(networkService === "notRegistered" ||
-                          networkService === "approvalRequired") && (
+                        {networkService && networkService !== "unavailable" && (
                           <Button
                             size="sm"
                             variant="outline"
                             disabled={app.busy}
-                            onClick={() => setPermissionDismissed(false)}
+                            onClick={() => setDismissedPermission(null)}
                           >
                             管理员授权
                           </Button>
@@ -264,7 +269,7 @@ export function App() {
                       edit={(profile) => setEditor({ profile })}
                       connect={() => {
                         if (networkService) {
-                          setPermissionDismissed(false);
+                          setDismissedPermission(null);
                         } else {
                           void app.connect();
                         }
@@ -321,7 +326,7 @@ export function App() {
         {permissionOpen && (
           <NetworkServiceDialog
             status={networkService}
-            onDismiss={() => setPermissionDismissed(true)}
+            onDismiss={() => setDismissedPermission(networkService)}
           />
         )}
         {deleting && (

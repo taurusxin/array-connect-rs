@@ -12,7 +12,7 @@ system-network = ["dep:tun-rs", "dep:windows-sys", "dep:route_manager"]
 cli = ["system-network", "dep:clap", "dep:crossterm", "dep:toml", "dep:tracing-subscriber"]
 openssl-tls = ["dep:openssl", "dep:tokio-openssl"]
 openssl-vendored = ["openssl-tls", "openssl/vendored"]
-macos-network-service = ["system-network", "dep:cc"]
+macos-network-service = ["system-network", "dep:cc", "dep:libc"]
 
 [build-dependencies]
 cc = { version = "1", optional = true }
@@ -50,6 +50,9 @@ crossterm = { version = "0.29", optional = true }
 toml = { version = "0.9", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"], optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = { version = "0.2", optional = true }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
 
@@ -62,7 +65,7 @@ path = "src/bin/arraysslvpn/main.rs"
 required-features = ["cli"]
 
 [[bin]]
-name = "array-connect-network"
+name = "array-connect-vpnd"
 path = "src/bin/macos_network_service.rs"
 required-features = ["macos-network-service"]
 

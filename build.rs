@@ -11,16 +11,11 @@ fn main() {
             .flag("-fobjc-arc")
             .flag("-fblocks")
             .compile("array_connect_macos_network");
-        for framework in [
-            "Foundation",
-            "Security",
-            "ServiceManagement",
-            "SystemConfiguration",
-        ] {
+        for framework in ["Foundation", "Security", "SystemConfiguration"] {
             println!("cargo:rustc-link-lib=framework={framework}");
         }
         println!(
-            "cargo:rustc-link-arg-bin=array-connect-network=-Wl,-sectcreate,__TEXT,__info_plist,{}",
+            "cargo:rustc-link-arg-bin=array-connect-vpnd=-Wl,-sectcreate,__TEXT,__info_plist,{}",
             info.display()
         );
     }

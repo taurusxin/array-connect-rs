@@ -61,7 +61,7 @@ type Store = {
   setPreferences: (preferences: Preferences) => Promise<void>;
   setAutostart: (enabled: boolean) => Promise<void>;
   refreshNetworkService: () => Promise<void>;
-  authorizeNetworkService: () => Promise<boolean>;
+  installNetworkService: () => Promise<boolean>;
   clearLogs: () => Promise<void>;
   requestExit: () => Promise<void>;
   chooseClose: (choice: CloseChoice, remember: boolean) => Promise<boolean>;
@@ -71,6 +71,7 @@ type Store = {
 let initialization: Promise<void> | null = null;
 let sessionRevision = 0;
 let credentialRevision = 0;
+let networkServiceRevision = 0;
 let exitRevision = 0;
 let preferenceRevision = 0;
 let preferencePending = 0;
@@ -332,6 +333,7 @@ export const useApp = create<Store>((set, get) => ({
     } finally {
       set({ busy: false });
     }
+    if (get().error) await get().refreshNetworkService();
   },
   disconnect: async () => {
     set({ busy: true, error: null });
@@ -396,29 +398,31 @@ export const useApp = create<Store>((set, get) => ({
   },
   refreshNetworkService: async () => {
     if (get().platform !== "macos" || get().busy) return;
+    const revision = ++networkServiceRevision;
     try {
-      set({
-        networkService: await command<NetworkServiceStatus>(
-          "network_service_status",
-        ),
-      });
+      const networkService = await command<NetworkServiceStatus>(
+        "network_service_status",
+      );
+      if (revision === networkServiceRevision) set({ networkService });
     } catch (error) {
-      set({ error: message(error) });
+      if (revision === networkServiceRevision) set({ error: message(error) });
     }
   },
-  authorizeNetworkService: async () => {
+  installNetworkService: async () => {
     const { busy, networkService } = get();
     if (
       busy ||
-      (networkService !== "notRegistered" &&
-        networkService !== "approvalRequired")
+      !networkService ||
+      networkService === "enabled" ||
+      networkService === "unavailable"
     )
       return false;
+    networkServiceRevision++;
     set({ busy: true, error: null });
     try {
       set({
         networkService: await command<NetworkServiceStatus>(
-          "authorize_network_service",
+          "install_network_service",
         ),
       });
       return true;

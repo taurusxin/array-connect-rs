@@ -19,11 +19,12 @@
     ]
   },
   "bundle": {
-    "externalBin": ["gen/macos/array-connect-network"],
+    "resources": {
+      "gen/macos/array-connect-vpnd": "array-connect-vpnd"
+    },
     "macOS": {
-      "files": {
-        "Library/LaunchDaemons/com.taurusxin.arrayconnect.network.plist": "macos/com.taurusxin.arrayconnect.network.plist"
-      }
+      "signingIdentity": "-",
+      "hardenedRuntime": true
     }
   }
 }

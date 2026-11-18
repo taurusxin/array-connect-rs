@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,8 +27,8 @@ if (
 }
 const cargoOutput = path.join(root, "target", "macos-network-service");
 const staging = path.join(desktop, "src-tauri", "gen", "macos");
-const binary = "array-connect-network";
-const staged = path.join(staging, `${binary}-${target}`);
+const binary = "array-connect-vpnd";
+const staged = path.join(staging, binary);
 mkdirSync(staging, { recursive: true });
 const sources = (
   target === "universal-apple-darwin" ? macTargets : [target]
@@ -44,14 +51,31 @@ const sources = (
     ],
     { cwd: root, stdio: "inherit" },
   );
-  const output = path.join(staging, `${binary}-${arch}`);
-  copyFileSync(path.join(cargoOutput, arch, "release", binary), output);
-  chmodSync(output, 0o755);
-  return output;
+  return path.join(cargoOutput, arch, "release", binary);
 });
 if (sources.length > 1) {
   execFileSync("lipo", ["-create", ...sources, "-output", staged], {
     stdio: "inherit",
   });
-  chmodSync(staged, 0o755);
+} else {
+  copyFileSync(sources[0], staged);
 }
+chmodSync(staged, 0o755);
+const identity = process.env.APPLE_SIGNING_IDENTITY || "-";
+execFileSync(
+  "/usr/bin/codesign",
+  [
+    "--force",
+    "--sign",
+    identity,
+    "--options",
+    "runtime",
+    identity === "-" ? "--timestamp=none" : "--timestamp",
+    "--identifier",
+    "com.taurusxin.arrayconnect.vpnd",
+    staged,
+  ],
+  { stdio: "inherit" },
+);
+const digest = createHash("sha256").update(readFileSync(staged)).digest("hex");
+writeFileSync(path.join(staging, `${binary}.sha256`), `${digest}\n`);

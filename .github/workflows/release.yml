@@ -220,6 +220,19 @@ jobs:
         env:
           NO_STRIP: 'true'
         run: pnpm tauri build --ci --target "$RELEASE_TARGET" --bundles "$RELEASE_BUNDLES" -- --locked
+      - name: Check for optional macOS signing certificate
+        if: runner.os == 'macOS'
+        id: macos-signing
+        shell: bash
+        env:
+          HAS_CERTIFICATE: ${{ secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
+        run: echo "configured=$HAS_CERTIFICATE" >> "$GITHUB_OUTPUT"
+      - name: Import certificate before building macOS resources
+        if: steps.macos-signing.outputs.configured == 'true'
+        uses: Apple-Actions/import-codesign-certs@v6
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       - name: Build macOS disk image and sign bundled network service
         if: runner.os == 'macOS'
         working-directory: desktop
@@ -234,12 +247,11 @@ jobs:
           NO_STRIP: 'true'
         run: |
           set -euo pipefail
-          if [[ "$APPLE_SIGNING_IDENTITY" == '-' ]]; then
-            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
-          elif [[ -z "$APPLE_CERTIFICATE" || -z "$APPLE_CERTIFICATE_PASSWORD" ]]; then
+          if [[ "$APPLE_SIGNING_IDENTITY" != '-' && ( -z "$APPLE_CERTIFICATE" || -z "$APPLE_CERTIFICATE_PASSWORD" ) ]]; then
             echo 'Developer ID signing requires APPLE_CERTIFICATE and APPLE_CERTIFICATE_PASSWORD.' >&2
             exit 1
           fi
+          unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
           if [[ "$APPLE_SIGNING_IDENTITY" == '-' || -z "${APPLE_ID}${APPLE_PASSWORD}${APPLE_TEAM_ID}" ]]; then
             unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
           elif [[ -z "$APPLE_ID" || -z "$APPLE_PASSWORD" || -z "$APPLE_TEAM_ID" ]]; then

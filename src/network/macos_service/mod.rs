@@ -1,7 +1,8 @@
-//! macOS network privilege separation for Developer ID signed desktop bundles.
+//! macOS network privilege separation through an installed launchd helper.
 
 mod daemon;
 mod dns;
+mod installation;
 mod protocol;
 
 use crate::{
@@ -10,23 +11,27 @@ use crate::{
 use async_trait::async_trait;
 pub use daemon::run_daemon;
 pub(super) use dns::DnsSession;
+pub use installation::install_daemon;
 use std::{
-    ffi::{CStr, c_char, c_int, c_void},
+    ffi::{CStr, CString, c_char, c_int, c_void},
     io,
     net::SocketAddr,
     os::fd::{FromRawFd, IntoRawFd, OwnedFd},
+    path::Path,
     ptr::NonNull,
     sync::Arc,
 };
 use tun_rs::AsyncDevice;
 
 const ERROR_LIMIT: usize = 512;
+const PROTOCOL_MISMATCH: c_int = -2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServiceStatus {
     Unavailable,
-    NotRegistered,
-    ApprovalRequired,
+    NotInstalled,
+    UpgradeRequired,
+    RepairRequired,
     Enabled,
 }
 
@@ -34,26 +39,27 @@ impl ServiceStatus {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Unavailable => "unavailable",
-            Self::NotRegistered => "notRegistered",
-            Self::ApprovalRequired => "approvalRequired",
+            Self::NotInstalled => "notInstalled",
+            Self::UpgradeRequired => "upgradeRequired",
+            Self::RepairRequired => "repairRequired",
             Self::Enabled => "enabled",
         }
     }
 
     pub fn user_message(self) -> &'static str {
         match self {
-            Self::Unavailable => "后台网络服务需要安装 Developer ID 签名版及 macOS 13 或更新系统",
-            Self::NotRegistered => "请先在客户端启用 macOS VPN 网络服务",
-            Self::ApprovalRequired => "请在系统设置的登录项与扩展中允许 Array Connect 后台运行",
-            Self::Enabled => "macOS VPN 网络服务已获授权",
+            Self::Unavailable => "VPN 网络服务需要 macOS 13 或更新系统，请从应用程序包启动",
+            Self::NotInstalled => "请先在客户端安装 macOS VPN 网络服务",
+            Self::UpgradeRequired => "当前应用与已安装的 VPN 网络服务版本不匹配，请更新服务",
+            Self::RepairRequired => "无法连接 VPN 网络服务，请检查后台运行权限或重新安装",
+            Self::Enabled => "macOS VPN 网络服务已就绪",
         }
     }
 }
 
 unsafe extern "C" {
-    fn ac_service_status() -> c_int;
-    fn ac_service_authorize(error: *mut c_char) -> c_int;
     fn ac_client_open(
+        daemon_hash: *const c_char,
         context: *mut c_void,
         failed: unsafe extern "C" fn(*mut c_void),
         release: unsafe extern "C" fn(*mut c_void),
@@ -70,20 +76,46 @@ unsafe extern "C" {
 }
 
 pub fn service_status() -> ServiceStatus {
-    match unsafe { ac_service_status() } {
-        1 => ServiceStatus::NotRegistered,
-        2 => ServiceStatus::ApprovalRequired,
-        3 => ServiceStatus::Enabled,
-        _ => ServiceStatus::Unavailable,
-    }
+    ready_client().map_or_else(|status| status, |_| ServiceStatus::Enabled)
 }
 
-pub fn authorize_service() -> Result<ServiceStatus> {
-    let mut error = [0; ERROR_LIMIT];
-    if unsafe { ac_service_authorize(error.as_mut_ptr()) } != 0 {
-        return Err(service_error(&error));
+pub fn install_service(payload: &Path, digest: &str) -> Result<ServiceStatus> {
+    if service_status() == ServiceStatus::Enabled {
+        return Ok(ServiceStatus::Enabled);
     }
-    Ok(service_status())
+    installation::request_install(payload, digest)?;
+    let status = service_status();
+    if status != ServiceStatus::Enabled {
+        return Err(VpnError::Network(status.user_message().into()));
+    }
+    Ok(status)
+}
+
+fn ready_client() -> std::result::Result<Arc<Client>, ServiceStatus> {
+    let identity = installation::app_hash().ok_or(ServiceStatus::Unavailable)?;
+    let receipt = installation::read_receipt().map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            ServiceStatus::NotInstalled
+        } else {
+            tracing::warn!(%error, "could not read the macOS VPN service receipt");
+            ServiceStatus::RepairRequired
+        }
+    })?;
+    if receipt.client != identity || receipt.protocol != installation::protocol_version() {
+        return Err(ServiceStatus::UpgradeRequired);
+    }
+    let client = Client::open(&receipt.daemon).map_err(|error| {
+        tracing::warn!(%error, "could not open the macOS VPN service");
+        ServiceStatus::RepairRequired
+    })?;
+    match client.request(Operation::Probe, &[]) {
+        Ok(_) => Ok(client),
+        Err(RequestError::Version) => Err(ServiceStatus::UpgradeRequired),
+        Err(RequestError::Other(error)) => {
+            tracing::warn!(%error, "macOS VPN service probe failed");
+            Err(ServiceStatus::RepairRequired)
+        }
+    }
 }
 
 fn service_error(error: &[c_char; ERROR_LIMIT]) -> VpnError {
@@ -123,21 +155,42 @@ enum Operation {
     Cleanup,
 }
 
+enum RequestError {
+    Version,
+    Other(VpnError),
+}
+
+fn connect_service() -> Result<Arc<Client>> {
+    ready_client().map_err(|status| VpnError::Network(status.user_message().into()))
+}
+
 impl Client {
-    fn open() -> Result<Arc<Self>> {
+    fn open(daemon_hash: &str) -> Result<Arc<Self>> {
+        let daemon_hash = CString::new(daemon_hash).expect("validated hexadecimal CDHash");
         let lost = Arc::new(CancellationToken::new());
         let context = Arc::into_raw(lost.clone()).cast_mut().cast::<c_void>();
         // The native side releases the Arc on every path, including open failure.
-        let handle = NonNull::new(unsafe { ac_client_open(context, mark_lost, release_context) })
-            .ok_or_else(|| {
-            VpnError::Network("无法建立经过签名校验的 macOS VPN 服务连接".into())
-        })?;
-        let client = Arc::new(Self { handle, lost });
-        client.call(Operation::Probe, &[])?;
-        Ok(client)
+        let handle = NonNull::new(unsafe {
+            ac_client_open(daemon_hash.as_ptr(), context, mark_lost, release_context)
+        })
+        .ok_or_else(|| VpnError::Network("无法建立经过签名校验的 macOS VPN 服务连接".into()))?;
+        Ok(Arc::new(Self { handle, lost }))
     }
 
     fn call(&self, operation: Operation, data: &[u8]) -> Result<Option<OwnedFd>> {
+        self.request(operation, data).map_err(|error| match error {
+            RequestError::Version => {
+                VpnError::Network(ServiceStatus::UpgradeRequired.user_message().into())
+            }
+            RequestError::Other(error) => error,
+        })
+    }
+
+    fn request(
+        &self,
+        operation: Operation,
+        data: &[u8],
+    ) -> std::result::Result<Option<OwnedFd>, RequestError> {
         let mut descriptor = -1;
         let mut error = [0; ERROR_LIMIT];
         let result = unsafe {
@@ -150,8 +203,10 @@ impl Client {
                 error.as_mut_ptr(),
             )
         };
-        if result != 0 {
-            return Err(service_error(&error));
+        match result {
+            PROTOCOL_MISMATCH => return Err(RequestError::Version),
+            0 => {}
+            _ => return Err(RequestError::Other(service_error(&error))),
         }
         // A successful reply transfers ownership of a fresh descriptor.
         Ok((descriptor >= 0).then(|| unsafe { OwnedFd::from_raw_fd(descriptor) }))
@@ -173,12 +228,8 @@ pub struct MacNetworkManager {
 impl MacNetworkManager {
     /// Run this bounded readiness probe on a blocking thread before login.
     pub fn prepare() -> Result<Self> {
-        let status = service_status();
-        if status != ServiceStatus::Enabled {
-            return Err(VpnError::Network(status.user_message().into()));
-        }
         Ok(Self {
-            client: Some(Client::open()?),
+            client: Some(connect_service()?),
         })
     }
 }
@@ -200,7 +251,7 @@ impl NetworkManager for MacNetworkManager {
             return Err(VpnError::Network("VPN 网络配置请求过大".into()));
         }
         if self.client.is_none() {
-            self.client = Some(blocking(Client::open).await?);
+            self.client = Some(blocking(connect_service).await?);
         }
         let client = self.client.as_ref().expect("opened").clone();
         let lost = client.lost.clone();

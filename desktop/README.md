@@ -50,11 +50,15 @@ pnpm dev
 
 Windows EXE 已嵌入 `requireAdministrator` 清单，启动时由系统请求 UAC 管理员授权。Windows 开发时请从管理员终端执行 `pnpm tauri dev`。同一 Windows 用户的普通和管理员进程共享系统凭据库。Linux 建立连接仍需 root，并使用当前用户可用、已解锁的 Secret Service 保存凭据。
 
-macOS 13 及以上的 Developer ID 签名版支持让桌面客户端以普通用户身份建立连接。把 `Array Connect.app` 安装到「应用程序」后打开。首次启动会弹出管理员授权提示，点击「继续授权」会打开系统设置。在「登录项与扩展」中允许 Array Connect 后台运行，按系统提示完成管理员认证。回到应用即可连接，授权有效期间后续启动无需重复操作。 [Apple Service Management 文档](https://developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos)
+### macOS 网络服务
 
-后台服务通过 `SMAppService` 注册，GUI 和服务通过 XPC 核验对端的签名、Team ID 和标识。服务只接收网络参数，负责创建 utun、管理路由及临时 DNS，并在断开连接、GUI 退出或 XPC 连接失效时清理。TLS、密码、OTP 和密钥库留在普通用户进程中。可在系统设置中停用后台项目。
+在 macOS 13 及以上，把 `Array Connect.app` 放到「应用程序」后打开。首次启动点「安装网络服务」，按系统密码框提示完成管理员认证。安装完成后可直接连接 VPN。以后更换应用构建或服务协议有变化时，客户端会提示「更新网络服务」并再次请求系统授权。Gatekeeper 对下载应用的首次打开仍按系统策略处理。[Apple 关于打开下载应用的说明](https://support.apple.com/zh-cn/102445)
 
-使用 ad-hoc 包或较早的 macOS 时，可从有管理员权限的账户运行 CLI。配置可参考仓库根目录的 `config.example.toml`。
+应用内置 `Contents/Resources/array-connect-vpnd`。安装时校验 SHA-256，将服务放到 root 管理的 `/Library/PrivilegedHelperTools/com.taurusxin.arrayconnect.vpnd`，并注册按需启动的 LaunchDaemon。XPC 双方按安装记录校验对端标识和 CDHash，服务仅接收网络设置。TLS、密码、OTP 和钥匙串操作由普通用户的应用进程处理。断开连接、GUI 退出或 XPC 失效后，后台服务清理 utun、路由和 DNS。[Apple 代码签名要求](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements/)
+
+### CLI
+
+macOS CLI 可从有管理员权限的账户运行。配置可参考仓库根目录的 `config.example.toml`。
 
 ```sh
 sudo ./array-connect --config ./config.toml

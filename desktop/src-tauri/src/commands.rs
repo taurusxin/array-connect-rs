@@ -61,25 +61,38 @@ pub async fn bootstrap(state: State<'_, Arc<Controller>>) -> Result<Bootstrap, S
     .map_err(|_| "初始化任务失败")?
 }
 #[tauri::command]
-pub fn network_service_status() -> Option<&'static str> {
-    crate::platform::network_service_status()
+pub async fn network_service_status() -> Result<Option<&'static str>, String> {
+    tauri::async_runtime::spawn_blocking(crate::platform::network_service_status)
+        .await
+        .map_err(|_| "无法检查 macOS VPN 网络服务".into())
 }
 
 #[tauri::command]
-pub async fn authorize_network_service(
+pub async fn install_network_service(
     app: tauri::AppHandle,
+    state: State<'_, Arc<Controller>>,
 ) -> Result<Option<&'static str>, String> {
+    if state.snapshot().state != "Disconnected" {
+        return Err("请先断开 VPN 再安装网络服务".into());
+    }
     #[cfg(target_os = "macos")]
     {
-        let (result, receiver) = tokio::sync::oneshot::channel();
-        app.run_on_main_thread(move || {
-            let outcome = arraysslvpn::network::macos_service::authorize_service()
-                .map(|status| Some(status.as_str()))
-                .map_err(|error| error.to_string());
-            let _ = result.send(outcome);
+        use tauri::{Manager, path::BaseDirectory};
+
+        let payload = app
+            .path()
+            .resolve("array-connect-vpnd", BaseDirectory::Resource)
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || {
+            arraysslvpn::network::macos_service::install_service(
+                &payload,
+                env!("ARRAY_CONNECT_VPND_SHA256"),
+            )
+            .map(|status| Some(status.as_str()))
+            .map_err(|error| error.to_string())
         })
-        .map_err(|error| error.to_string())?;
-        receiver.await.map_err(|_| "无法启用 macOS VPN 网络服务")?
+        .await
+        .map_err(|_| "无法安装 macOS VPN 网络服务".to_owned())?
     }
     #[cfg(not(target_os = "macos"))]
     {

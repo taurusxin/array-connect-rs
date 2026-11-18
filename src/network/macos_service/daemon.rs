@@ -1,7 +1,11 @@
-use super::{ERROR_LIMIT, protocol};
+use super::{
+    ERROR_LIMIT,
+    installation::{daemon_hash, protocol_version, read_receipt},
+    protocol,
+};
 use crate::{NetworkManager, Result, VpnError, network::SystemNetworkManager};
 use std::{
-    ffi::{c_char, c_int, c_void},
+    ffi::{CString, c_char, c_int, c_void},
     os::fd::{IntoRawFd, OwnedFd},
     panic::{AssertUnwindSafe, catch_unwind},
 };
@@ -13,6 +17,7 @@ struct State {
 
 unsafe extern "C" {
     fn ac_daemon_run(
+        client_hash: *const c_char,
         state: *mut c_void,
         setup: unsafe extern "C" fn(
             *mut c_void,
@@ -25,8 +30,15 @@ unsafe extern "C" {
     ) -> c_int;
 }
 
-/// Enter the foreground event loop of the signed launchd helper.
+/// Enter the foreground event loop of the installed launchd helper.
 pub fn run_daemon() -> Result<()> {
+    let receipt = read_receipt()?;
+    if receipt.protocol != protocol_version() || daemon_hash().as_deref() != Some(&receipt.daemon) {
+        return Err(VpnError::Network(
+            "vpnd does not match its installation receipt".into(),
+        ));
+    }
+    let client_hash = CString::new(receipt.client).expect("validated hexadecimal CDHash");
     let state = Box::into_raw(Box::new(State {
         runtime: tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
@@ -36,11 +48,11 @@ pub fn run_daemon() -> Result<()> {
     }));
     // The event loop owns the heap state after installing its serial callbacks.
     // A return indicates failure before callbacks could be installed.
-    let result = unsafe { ac_daemon_run(state.cast(), setup, cleanup) };
+    let result = unsafe { ac_daemon_run(client_hash.as_ptr(), state.cast(), setup, cleanup) };
     drop(unsafe { Box::from_raw(state) });
     if result != 0 {
         return Err(VpnError::Network(
-            "requires launchd root context and a valid Developer ID helper signature".into(),
+            "requires launchd root context and a registered VPN Mach service".into(),
         ));
     }
     Ok(())

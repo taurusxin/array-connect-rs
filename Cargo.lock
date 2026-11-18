@@ -87,6 +87,7 @@ dependencies = [
  "crossterm",
  "httparse",
  "ipnet",
+ "libc",
  "openssl",
  "percent-encoding",
  "rand",
