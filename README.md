@@ -1,6 +1,6 @@
-# arraysslvpn
+# Array Connect
 
-使用 Rust 实现的 Array Networks SSL VPN 客户端。单个 Cargo package 同时提供异步库和命令行程序，供后续 GUI 直接接入。
+使用 Rust 实现的 Array Networks SSL VPN 客户端，提供桌面应用、`array-connect` 命令行和 `arraysslvpn` 异步 Rust 库。
 
 协议依据 OpenConnect 的 Array 模块移植，业务逻辑不调用 libopenconnect；默认 TLS 使用 Rustls + ring，不链接 OpenSSL。可选 OpenSSL 兼容后端需要显式编译和选择。ring 内含 C/汇编，Windows 使用独立的 Wintun 驱动。
 
@@ -59,9 +59,11 @@ cargo build --release --locked --features openssl-tls
 
 ## 构建与连接
 
-安装 Rust stable 和对应平台的编译工具：
+安装 Rust stable 和对应平台的编译工具，然后克隆并构建：
 
 ~~~console
+git clone git@github.com:taurusxin/array-connect-rs.git
+cd array-connect-rs
 cargo build --release --locked
 cargo run -- --help
 ~~~
@@ -165,7 +167,7 @@ array-connect --config config.local.toml --mtu 1300 --no-dns
 
 ~~~toml
 [dependencies]
-arraysslvpn = { path = "../arraysslvpn-rs", default-features = false, features = ["system-network"] }
+arraysslvpn = { path = "../array-connect-rs", default-features = false, features = ["system-network"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ~~~
 
@@ -238,6 +240,8 @@ sudo -E env ARRAYSSLVPN_PRIVILEGED_TEST=1 cargo test --test system_network -- --
 真实网关联调建议先用 `--authenticate -vv` 确认 TLS/登录，再连接并检查内网 IP、内网域名、持续传输、断网重连及退出后的路由/DNS 恢复。报错时可分享脱敏日志，无需提供密码/Cookie。
 
 ## 发布
+
+桌面安装包和 CLI 压缩包可从 [GitHub Releases](https://github.com/taurusxin/array-connect-rs/releases) 下载。
 
 桌面客户端和命令行程序统一在推送 `v*` 版本 tag 时打包并上传到同一个 GitHub Release；普通分支推送和 PR 只运行检查，不生成安装包或发布 Release。仅在明确要求发布新版时递增版本并推送 tag，流程与平台产物见 [发布说明](docs/releasing.md)。
 
