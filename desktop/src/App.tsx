@@ -33,12 +33,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ProfileDialog } from "@/components/profile-dialog";
 import { CredentialsDialog } from "@/components/credentials-dialog";
 import { ExitDialog } from "@/components/exit-dialog";
+import { NetworkServiceDialog } from "@/components/network-service-dialog";
 import { Overview } from "@/pages/overview";
 import { Profiles } from "@/pages/profiles";
 import { Logs } from "@/pages/logs";
 import { Preferences } from "@/pages/preferences";
 import { native } from "@/lib/api";
-import { stateLabels, type Profile } from "@/lib/types";
+import { networkServiceLabels, stateLabels, type Profile } from "@/lib/types";
 import { useApp } from "@/stores/app";
 
 const navigation = [
@@ -55,6 +56,7 @@ export function App() {
     null,
   );
   const [deleting, setDeleting] = useState<Profile | null>(null);
+  const [permissionDismissed, setPermissionDismissed] = useState(false);
   useEffect(() => {
     void app.initialize();
     if (native) {
@@ -83,6 +85,27 @@ export function App() {
     const timer = setTimeout(app.dismiss, 3000);
     return () => clearTimeout(timer);
   }, [app.notice]);
+  useEffect(() => {
+    if (!native || app.platform !== "macos") return;
+    const refresh = () => void app.refreshNetworkService();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [app.platform, app.refreshNetworkService]);
+  const networkService =
+    native &&
+    app.initialized &&
+    app.platform === "macos" &&
+    !app.administrator &&
+    app.networkService !== "enabled"
+      ? app.networkService
+      : null;
+  const permissionOpen =
+    networkService !== null &&
+    !permissionDismissed &&
+    app.session.state === "Disconnected" &&
+    app.exitState === "idle" &&
+    !editor &&
+    !deleting;
   return (
     <TooltipProvider>
       <div className={customTitlebar ? "app-frame custom-window" : "app-frame"}>
@@ -204,15 +227,32 @@ export function App() {
                 </div>
               ) : (
                 <>
-                  {native && !app.administrator && app.profiles.length > 0 && (
-                    <div className="permission-note">
-                      <ShieldAlert size={15} />
-                      <span>
-                        连接 VPN 需要管理员/root
-                        权限。请退出后以管理员身份运行。
-                      </span>
-                    </div>
-                  )}
+                  {native &&
+                    !app.administrator &&
+                    (networkService !== null ||
+                      (app.platform !== "macos" &&
+                        (app.profiles.length > 0 ||
+                          app.page === "preferences"))) && (
+                      <div className="permission-note">
+                        <ShieldAlert size={15} />
+                        <span>
+                          {networkService
+                            ? networkServiceLabels[networkService]
+                            : "连接 VPN 需要管理员/root 权限。请退出后以管理员身份运行。"}
+                        </span>
+                        {(networkService === "notRegistered" ||
+                          networkService === "approvalRequired") && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={app.busy}
+                            onClick={() => setPermissionDismissed(false)}
+                          >
+                            管理员授权
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   {!native && (
                     <div className="preview-note">
                       <Activity size={14} />
@@ -220,7 +260,16 @@ export function App() {
                     </div>
                   )}
                   {app.page === "overview" && (
-                    <Overview edit={(profile) => setEditor({ profile })} />
+                    <Overview
+                      edit={(profile) => setEditor({ profile })}
+                      connect={() => {
+                        if (networkService) {
+                          setPermissionDismissed(false);
+                        } else {
+                          void app.connect();
+                        }
+                      }}
+                    />
                   )}
                   {app.page === "profiles" && (
                     <Profiles
@@ -267,6 +316,12 @@ export function App() {
           <CredentialsDialog
             key={app.credentialRequest.id}
             request={app.credentialRequest}
+          />
+        )}
+        {permissionOpen && (
+          <NetworkServiceDialog
+            status={networkService}
+            onDismiss={() => setPermissionDismissed(true)}
           />
         )}
         {deleting && (

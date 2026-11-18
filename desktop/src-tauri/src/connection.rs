@@ -375,11 +375,6 @@ impl Controller {
         if self.enrollment.lock().unwrap().is_some() {
             return Err("请先等待 OTP 注册完成".into());
         }
-        if !crate::platform::administrator() {
-            return Err(
-                "连接 VPN 需要管理员/root 权限。请退出后以管理员身份重新运行客户端。".into(),
-            );
-        }
         let profile = self.db.lock().unwrap().profile(id)?;
         profile.validate()?;
         if profile.two_factor
@@ -404,6 +399,7 @@ impl Controller {
             },
         )?;
         let client = VpnClient::new(config).map_err(|e| self.logs.redact(&e.to_string()))?;
+        let network = crate::platform::network_manager()?;
         let handle = client.handle();
         let events = handle.subscribe();
         let session_id = uuid::Uuid::new_v4().to_string();
@@ -430,7 +426,7 @@ impl Controller {
         let owner = self.clone();
         tauri::async_runtime::spawn(async move {
             owner
-                .run_session(session_id, client, handle, events, done)
+                .run_session(session_id, client, network, handle, events, done)
                 .await;
         });
         Ok(())
@@ -439,11 +435,12 @@ impl Controller {
         self: Arc<Self>,
         id: String,
         client: VpnClient,
+        network: Box<dyn arraysslvpn::NetworkManager>,
         handle: SessionHandle,
         mut events: tokio::sync::broadcast::Receiver<ClientEvent>,
         done: watch::Sender<bool>,
     ) {
-        let operation = async { client.connect().await?.run().await };
+        let operation = async { client.connect_with(network).await?.run().await };
         tokio::pin!(operation);
         let mut timer = tokio::time::interval(Duration::from_secs(1));
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

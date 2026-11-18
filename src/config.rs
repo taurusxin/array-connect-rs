@@ -95,7 +95,8 @@ pub enum RouteMode {
     None,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkConfig {
     pub interface_name: Option<String>,
     pub mtu: u16,

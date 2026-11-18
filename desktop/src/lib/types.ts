@@ -106,6 +106,15 @@ export type Usage = {
   sessions: number;
   recent: HistoryItem[];
 };
+export type NetworkServiceStatus =
+  "unavailable" | "notRegistered" | "approvalRequired" | "enabled";
+export const networkServiceLabels: Record<NetworkServiceStatus, string> = {
+  unavailable: "VPN 网络服务需要 macOS 13 或更新系统和 Developer ID 签名版。",
+  notRegistered: "首次连接前，请启用 VPN 网络服务。",
+  approvalRequired:
+    "请在系统设置的「登录项与扩展」中允许 Array Connect 后台运行。",
+  enabled: "VPN 网络服务已获授权，桌面应用可以普通用户身份连接。",
+};
 export type Bootstrap = {
   profiles: Profile[];
   preferences: Preferences;
@@ -116,6 +125,7 @@ export type Bootstrap = {
   autostart: boolean;
   autostartError: string | null;
   administrator: boolean;
+  networkService: NetworkServiceStatus | null;
   wintunAvailable: boolean;
   storagePath: string;
   platform: string;

@@ -9,6 +9,7 @@ import {
   type ExitState,
   type LiveSession,
   type LogRecord,
+  type NetworkServiceStatus,
   type Preferences,
   type Profile,
   type RatePoint,
@@ -33,6 +34,7 @@ type Store = {
   trayAvailable: boolean;
   exitState: ExitState;
   administrator: boolean;
+  networkService: NetworkServiceStatus | null;
   wintunAvailable: boolean;
   storagePath: string;
   platform: string;
@@ -58,6 +60,8 @@ type Store = {
   submit: (password: string, otp: string) => Promise<boolean>;
   setPreferences: (preferences: Preferences) => Promise<void>;
   setAutostart: (enabled: boolean) => Promise<void>;
+  refreshNetworkService: () => Promise<void>;
+  authorizeNetworkService: () => Promise<boolean>;
   clearLogs: () => Promise<void>;
   requestExit: () => Promise<void>;
   chooseClose: (choice: CloseChoice, remember: boolean) => Promise<boolean>;
@@ -101,6 +105,7 @@ export const useApp = create<Store>((set, get) => ({
   trayAvailable: false,
   exitState: "idle",
   administrator: false,
+  networkService: null,
   wintunAvailable: true,
   storagePath: "",
   platform: "",
@@ -385,6 +390,41 @@ export const useApp = create<Store>((set, get) => ({
       });
     } catch (error) {
       set({ error: message(error) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+  refreshNetworkService: async () => {
+    if (get().platform !== "macos" || get().busy) return;
+    try {
+      set({
+        networkService: await command<NetworkServiceStatus>(
+          "network_service_status",
+        ),
+      });
+    } catch (error) {
+      set({ error: message(error) });
+    }
+  },
+  authorizeNetworkService: async () => {
+    const { busy, networkService } = get();
+    if (
+      busy ||
+      (networkService !== "notRegistered" &&
+        networkService !== "approvalRequired")
+    )
+      return false;
+    set({ busy: true, error: null });
+    try {
+      set({
+        networkService: await command<NetworkServiceStatus>(
+          "authorize_network_service",
+        ),
+      });
+      return true;
+    } catch (error) {
+      set({ error: message(error) });
+      return false;
     } finally {
       set({ busy: false });
     }

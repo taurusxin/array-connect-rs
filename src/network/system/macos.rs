@@ -9,7 +9,10 @@ pub struct Platform {
     manager: RouteManager,
     bypass: Option<Route>,
     added: Vec<Route>,
+    #[cfg(not(feature = "macos-network-service"))]
     dns_key: Option<String>,
+    #[cfg(feature = "macos-network-service")]
+    dns: Option<crate::network::macos_service::DnsSession>,
 }
 pub fn ensure_new_interface(name: &str) -> Result<()> {
     let raw = command("/sbin/ifconfig", &["-l".into()], None)?;
@@ -48,7 +51,10 @@ impl Platform {
             manager,
             bypass,
             added: vec![],
+            #[cfg(not(feature = "macos-network-service"))]
             dns_key: None,
+            #[cfg(feature = "macos-network-service")]
+            dns: None,
         })
     }
     fn add(&mut self, route: Route) -> Result<()> {
@@ -83,6 +89,15 @@ impl Platform {
                     .with_if_index(device.if_index()?),
             )?;
         }
+        #[cfg(feature = "macos-network-service")]
+        if config.manage_dns && !settings.dns_servers.is_empty() {
+            self.dns = Some(crate::network::macos_service::DnsSession::configure(
+                &device.name()?,
+                &settings.dns_servers,
+                &settings.search_domains,
+            )?);
+        }
+        #[cfg(not(feature = "macos-network-service"))]
         if config.manage_dns && !settings.dns_servers.is_empty() {
             let name = device.name()?;
             let key = format!(
@@ -119,6 +134,11 @@ impl Platform {
     }
     pub fn cleanup(&mut self) -> Result<()> {
         let mut errors = vec![];
+        #[cfg(feature = "macos-network-service")]
+        {
+            self.dns = None;
+        }
+        #[cfg(not(feature = "macos-network-service"))]
         if let Some(key) = &self.dns_key {
             match command(
                 "/usr/sbin/scutil",

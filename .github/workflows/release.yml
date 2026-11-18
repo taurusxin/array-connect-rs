@@ -214,14 +214,48 @@ jobs:
         working-directory: desktop
         run: pnpm install --frozen-lockfile
       - name: Build desktop installers with embedded OpenSSL
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         working-directory: desktop
         shell: bash
         env:
-          # Ad-hoc signing needs no Apple account and is not notarization.
-          APPLE_SIGNING_IDENTITY: '-'
           NO_STRIP: 'true'
         run: pnpm tauri build --ci --target "$RELEASE_TARGET" --bundles "$RELEASE_BUNDLES" -- --locked
+      - name: Build macOS disk image and sign bundled network service
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NO_STRIP: 'true'
+        run: |
+          set -euo pipefail
+          if [[ "$APPLE_SIGNING_IDENTITY" == '-' ]]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
+          elif [[ -z "$APPLE_CERTIFICATE" || -z "$APPLE_CERTIFICATE_PASSWORD" ]]; then
+            echo 'Developer ID signing requires APPLE_CERTIFICATE and APPLE_CERTIFICATE_PASSWORD.' >&2
+            exit 1
+          fi
+          if [[ "$APPLE_SIGNING_IDENTITY" == '-' || -z "${APPLE_ID}${APPLE_PASSWORD}${APPLE_TEAM_ID}" ]]; then
+            unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+          elif [[ -z "$APPLE_ID" || -z "$APPLE_PASSWORD" || -z "$APPLE_TEAM_ID" ]]; then
+            echo 'Notarization requires APPLE_ID, APPLE_PASSWORD and APPLE_TEAM_ID.' >&2
+            exit 1
+          fi
+          pnpm tauri build --ci --target "$RELEASE_TARGET" --bundles "$RELEASE_BUNDLES" -- --locked
+      - name: Verify macOS network service packaging and signatures
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+        run: |
+          if [[ -f desktop/scripts/verify-macos-network-service.sh ]]; then
+            bash desktop/scripts/verify-macos-network-service.sh "desktop/src-tauri/target/$RELEASE_TARGET/release/bundle/macos/Array Connect.app"
+          fi
       - name: Build Windows desktop installer with embedded OpenSSL
         if: runner.os == 'Windows'
         working-directory: desktop

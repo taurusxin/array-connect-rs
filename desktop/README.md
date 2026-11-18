@@ -48,17 +48,19 @@ pnpm dev
 
 ## 权限和数据
 
-Windows EXE 已嵌入 `requireAdministrator` 清单，启动时由系统请求 UAC 管理员授权。Windows 开发时请从管理员终端执行 `pnpm tauri dev`。macOS/Linux 编辑配置可正常运行，实际连接仍需要 root 权限；独立提权服务尚未实现。Windows 同一用户的普通/管理员进程共享该用户的系统凭据库。Linux 需要运行用户可用、已解锁的 Secret Service；密钥库不可用时返回明确错误，不回退到明文保存。
+Windows EXE 已嵌入 `requireAdministrator` 清单，启动时由系统请求 UAC 管理员授权。Windows 开发时请从管理员终端执行 `pnpm tauri dev`。同一 Windows 用户的普通和管理员进程共享系统凭据库。Linux 建立连接仍需 root，并使用当前用户可用、已解锁的 Secret Service 保存凭据。
 
-macOS 上可先用有管理员权限的账户运行下载的 CLI，配置可参考仓库根目录的 `config.example.toml`：
+macOS 13 及以上的 Developer ID 签名版支持让桌面客户端以普通用户身份建立连接。把 `Array Connect.app` 安装到「应用程序」后打开。首次启动会弹出管理员授权提示，点击「继续授权」会打开系统设置。在「登录项与扩展」中允许 Array Connect 后台运行，按系统提示完成管理员认证。回到应用即可连接，授权有效期间后续启动无需重复操作。 [Apple Service Management 文档](https://developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos)
+
+后台服务通过 `SMAppService` 注册，GUI 和服务通过 XPC 核验对端的签名、Team ID 和标识。服务只接收网络参数，负责创建 utun、管理路由及临时 DNS，并在断开连接、GUI 退出或 XPC 连接失效时清理。TLS、密码、OTP 和密钥库留在普通用户进程中。可在系统设置中停用后台项目。
+
+使用 ad-hoc 包或较早的 macOS 时，可从有管理员权限的账户运行 CLI。配置可参考仓库根目录的 `config.example.toml`。
 
 ```sh
 sudo ./array-connect --config ./config.toml
 ```
 
 CLI 在终端提示输入密码。网关要求 OTP 时，按网关要求在静态密码后追加当前验证码。
-
-桌面端后续可通过 `SMAppService` 在 macOS 13 及以上注册经过签名的 LaunchDaemon，由用户在系统设置批准。GUI 继续以当前用户运行，保留对 SQLite 和登录钥匙串的访问。独立 helper 通过校验调用方身份的 XPC 接口创建 utun、应用路由与 DNS，并在断开或 GUI 退出后清理。该方案可以复用现有网络后端。[Apple Service Management 文档](https://developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos)
 
 如需接入 macOS 系统 VPN 管理，可将数据面适配为 Network Extension 的 Packet Tunnel Provider，由系统应用 VPN 网络设置。直接分发需要按 Apple 的部署要求配置 Developer ID 签名和 Network Extension entitlement。[Apple Network Extension 部署说明](https://developer.apple.com/documentation/technotes/tn3134-network-extension-provider-deployment)
 
@@ -77,6 +79,8 @@ OTP 注册与 VPN 连接独立；注册前需断开 VPN，注册过程中不允�
 调试版可设置 `ARRAY_CONNECT_DATA_DIR` 指定隔离测试目录；发布版始终使用正常应用数据目录。该变量不改变凭据服务名，不应拿真实凭据进行自动化 UI 测试。
 
 ## 验证
+
+macOS 上直接运行下面的 Cargo 检查前，先在 `desktop` 目录运行 `node scripts/prepare-macos-service.mjs`。Tauri 的 `dev` 和 `build` 会调用这一步。
 
 ```sh
 pnpm build

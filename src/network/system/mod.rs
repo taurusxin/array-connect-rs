@@ -49,6 +49,32 @@ pub struct SystemNetworkManager {
 struct SystemState {
     device: Option<Arc<AsyncDevice>>,
     platform: Option<platform::Platform>,
+    #[cfg(all(target_os = "macos", feature = "macos-network-service"))]
+    delegated: bool,
+}
+
+#[cfg(all(target_os = "macos", feature = "macos-network-service"))]
+impl SystemNetworkManager {
+    pub(super) fn delegated_macos() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(SystemState {
+                delegated: true,
+                ..Default::default()
+            })),
+        }
+    }
+
+    pub(super) fn duplicate_tun(&self) -> Result<std::os::fd::OwnedFd> {
+        use std::os::fd::{AsRawFd, BorrowedFd};
+        let state = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let device = state
+            .device
+            .as_ref()
+            .ok_or_else(|| VpnError::Network("utun has not been configured".into()))?;
+        // The state holds the device open until the kernel duplicates its descriptor.
+        let descriptor = unsafe { BorrowedFd::borrow_raw(device.as_raw_fd()) };
+        Ok(descriptor.try_clone_to_owned()?)
+    }
 }
 
 impl SystemState {
@@ -64,11 +90,13 @@ impl SystemState {
         if let IpAddr::V4(ip) = endpoint.ip() {
             routes = remove_endpoint(routes, ip)?;
         }
-        // Capture the original physical route before creating any TUN address.
-        self.platform = Some(platform::Platform::new(
-            endpoint.ip(),
-            config.route_mode != RouteMode::None,
-        )?);
+        // A delegated lease excludes the peer from every utun route above.
+        // Its routes can then all disappear with utun, with no physical route
+        // left behind after an abrupt service exit.
+        let add_bypass = config.route_mode != RouteMode::None;
+        #[cfg(all(target_os = "macos", feature = "macos-network-service"))]
+        let add_bypass = add_bypass && !self.delegated;
+        self.platform = Some(platform::Platform::new(endpoint.ip(), add_bypass)?);
         let name = config.interface_name.clone().unwrap_or_else(|| {
             #[cfg(target_os = "macos")]
             {

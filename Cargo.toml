@@ -4,6 +4,7 @@ version = "0.4.0"
 edition = "2024"
 license = "LGPL-2.1-only"
 description = "An asynchronous Array Networks SSL VPN client library and CLI"
+default-run = "array-connect"
 
 [features]
 default = ["cli"]
@@ -11,6 +12,10 @@ system-network = ["dep:tun-rs", "dep:windows-sys", "dep:route_manager"]
 cli = ["system-network", "dep:clap", "dep:crossterm", "dep:toml", "dep:tracing-subscriber"]
 openssl-tls = ["dep:openssl", "dep:tokio-openssl"]
 openssl-vendored = ["openssl-tls", "openssl/vendored"]
+macos-network-service = ["system-network", "dep:cc"]
+
+[build-dependencies]
+cc = { version = "1", optional = true }
 
 [dependencies]
 async-trait = "0.1"
@@ -55,6 +60,11 @@ rcgen = { version = "0.14", default-features = false, features = ["crypto", "rin
 name = "array-connect"
 path = "src/bin/arraysslvpn/main.rs"
 required-features = ["cli"]
+
+[[bin]]
+name = "array-connect-network"
+path = "src/bin/macos_network_service.rs"
+required-features = ["macos-network-service"]
 
 [[example]]
 name = "gui_integration"

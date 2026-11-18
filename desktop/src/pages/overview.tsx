@@ -25,8 +25,10 @@ import { emptySession, stateLabels, type Profile } from "@/lib/types";
 
 export function Overview({
   edit,
+  connect,
 }: {
   edit: (profile: Profile | null) => void;
+  connect: () => void;
 }) {
   const app = useApp();
   const profile = app.profiles.find(
@@ -165,7 +167,7 @@ export function Overview({
                 className={active ? "disconnect-button" : "connect-button"}
                 variant={active ? "outline" : "default"}
                 disabled={app.busy}
-                onClick={() => void (active ? app.disconnect() : app.connect())}
+                onClick={active ? () => void app.disconnect() : connect}
               >
                 {app.busy ? (
                   <LoaderCircle className="animate-spin" />

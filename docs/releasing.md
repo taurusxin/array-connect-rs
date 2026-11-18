@@ -28,7 +28,19 @@
 
 两种产物中的可执行文件均为 `array-connect`，Windows 使用 `array-connect.exe`。Windows 的 NSIS 安装器仍使用 `Array Connect` 查找已有安装，升级时会使用已记录的旧 EXE 名称清理旧文件。应用标识 `com.taurusxin.arrayconnect` 用于关联现有应用数据。若选择先卸载旧版，保留用户数据时请勿勾选卸载器中的删除应用数据选项。
 
-两种客户端均将 OpenSSL 从锁定的源码依赖静态链接，默认 TLS 后端仍为 Rustls。Windows CLI 的 Wintun 与桌面端使用同一下载脚本及 SHA-256 验证。当前 Windows 产物未做代码签名；macOS 使用 ad-hoc 签名，未配置 Apple Developer 签名及 notarization。
+两种客户端均将 OpenSSL 从锁定的源码依赖静态链接，默认 TLS 后端仍为 Rustls。Windows CLI 的 Wintun 与桌面端使用同一下载脚本及 SHA-256 验证。Windows 产物未配置代码签名。macOS 默认使用 ad-hoc 签名。
+
+macOS 后台网络服务要求主应用和内嵌的 `array-connect-network` 来自同一 Apple 团队的 Developer ID Application 签名。在 CI 中配置 `APPLE_SIGNING_IDENTITY`、`APPLE_CERTIFICATE` 和 `APPLE_CERTIFICATE_PASSWORD` 三个仓库 Secret，Tauri 会先签名 helper，再签名整个应用。未配置时，构建会使用 ad-hoc 签名，此时客户端会提示后台服务不可用。面向用户分发 Developer ID 包时，还需设置 `APPLE_ID`、`APPLE_PASSWORD`（Apple App 专用密码）和 `APPLE_TEAM_ID` 以启用公证。 [Tauri macOS 签名与公证](https://v2.tauri.app/distribute/sign/macos/)
+
+本地可从钥匙串选用 Developer ID Application 身份。在 macOS 的 `desktop` 目录运行以下命令，检查包内的 LaunchDaemon 和签名，无需注册服务。
+
+```sh
+export APPLE_SIGNING_IDENTITY='Developer ID Application: Your Name (YOURTEAMID)'
+pnpm tauri build --ci --bundles dmg -- --locked
+bash scripts/verify-macos-network-service.sh 'src-tauri/target/release/bundle/macos/Array Connect.app'
+```
+
+签名版还需在 macOS 13 或更新系统验收授权、正常连接与重连、断开后的路由和 DNS 恢复，以及退出应用和异常退出时的清理。测试期间连接真实网关需要使用本地持有的权限与凭据。
 
 Windows 发布使用 PowerShell 执行编译，枚举 PATH 中的所有 Perl，逐个探测平台并选择单个 `MSWin32` 原生解释器，检查 OpenSSL 所需模块后将绝对路径写入 `OPENSSL_SRC_PERL` / `PERL`。找不到原生解释器时明确列出检查过的路径并停止。这样可避免将多个路径当成一个程序调用，或使用 MSYS Perl 导致 `Locale/Maketext/Simple.pm` 查找失败及 Windows 模块路径被错误解析。Linux/macOS 继续使用 Bash。
 

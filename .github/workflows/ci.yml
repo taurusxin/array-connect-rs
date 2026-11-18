@@ -44,6 +44,9 @@ jobs:
       - run: cargo test --locked --all-targets
       - run: cargo test --locked --all-targets --features openssl-vendored
       - run: cargo test --locked --no-default-features
+      - name: Test macOS network service and validate its native build
+        if: runner.os == 'macOS'
+        run: cargo test --locked --no-default-features --features macos-network-service --lib
       - run: cargo check --locked --no-default-features --features system-network --all-targets
       - name: Verify default build has no OpenSSL or native-tls backend
         shell: bash
@@ -89,6 +92,9 @@ jobs:
           perl-version: '5.40'
       - run: pnpm install --frozen-lockfile
       - run: pnpm prepare
+      - name: Build macOS network service for the desktop build
+        if: runner.os == 'macOS'
+        run: node scripts/prepare-macos-service.mjs
       - run: pnpm build
       - run: pnpm test
       - run: pnpm format:check

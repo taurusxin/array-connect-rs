@@ -50,6 +50,7 @@ keyring = { version = "3.6", features = ["windows-native"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+arraysslvpn = { path = "../..", default-features = false, features = ["macos-network-service"] }
 keyring = { version = "3.6", features = ["apple-native"] }
 tauri = { version = "2", features = ["image-png"] }
 

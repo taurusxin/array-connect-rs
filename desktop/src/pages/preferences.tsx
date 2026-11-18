@@ -14,7 +14,10 @@ import {
 } from "lucide-react";
 import { Choice, ToggleRow } from "@/components/fields";
 import { useApp } from "@/stores/app";
-import type { Preferences as Settings } from "@/lib/types";
+import {
+  networkServiceLabels,
+  type Preferences as Settings,
+} from "@/lib/types";
 
 export function Preferences() {
   const app = useApp();
@@ -203,7 +206,9 @@ export function Preferences() {
             <p>
               {app.administrator
                 ? "当前进程已有管理员/root 权限。"
-                : "编辑配置无需提权。建立 VPN 时请以管理员/root 身份运行。"}
+                : app.networkService
+                  ? networkServiceLabels[app.networkService]
+                  : "编辑配置无需提权。建立 VPN 时请以管理员/root 身份运行。"}
               {!app.wintunAvailable &&
                 " Windows 还需要在程序旁放置 wintun.dll。"}
             </p>

@@ -2,14 +2,15 @@
 // Copyright 2020 David Woodhouse. SPDX-License-Identifier: LGPL-2.1-only
 use crate::{Result, VpnError};
 use ipnet::Ipv4Net;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     net::{IpAddr, Ipv4Addr},
     time::Duration,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkSettings {
     pub address: Ipv4Addr,
     pub prefix_len: u8,

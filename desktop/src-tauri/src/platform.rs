@@ -1,3 +1,28 @@
+pub fn network_manager() -> Result<Box<dyn arraysslvpn::NetworkManager>, String> {
+    if administrator() {
+        return Ok(Box::new(
+            arraysslvpn::network::SystemNetworkManager::default(),
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        arraysslvpn::network::macos_service::MacNetworkManager::prepare()
+            .map(|manager| Box::new(manager) as Box<dyn arraysslvpn::NetworkManager>)
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err("连接 VPN 需要管理员/root 权限。请退出后以管理员身份重新运行客户端。".into())
+}
+
+pub fn network_service_status() -> Option<&'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(arraysslvpn::network::macos_service::service_status().as_str())
+    }
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
 pub fn administrator() -> bool {
     #[cfg(windows)]
     unsafe {

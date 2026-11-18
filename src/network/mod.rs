@@ -9,6 +9,11 @@ pub use routes::plan_routes;
 mod system;
 #[cfg(feature = "system-network")]
 pub use system::SystemNetworkManager;
+#[cfg(all(feature = "macos-network-service", target_os = "macos"))]
+pub mod macos_service;
+#[cfg(all(feature = "macos-network-service", test, not(target_os = "macos")))]
+#[path = "macos_service/protocol.rs"]
+mod macos_service_protocol;
 
 /// Datagram-oriented TUN I/O. Implementations must be cancellation-safe for recv:
 /// dropping recv must not consume a packet or leave a background read outstanding.

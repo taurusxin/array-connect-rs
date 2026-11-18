@@ -1,4 +1,8 @@
 {
+  "build": {
+    "beforeDevCommand": "node scripts/prepare-macos-service.mjs && pnpm dev",
+    "beforeBuildCommand": "node scripts/prepare-macos-service.mjs && pnpm build"
+  },
   "app": {
     "windows": [
       {
@@ -13,5 +17,13 @@
         "center": true
       }
     ]
+  },
+  "bundle": {
+    "externalBin": ["gen/macos/array-connect-network"],
+    "macOS": {
+      "files": {
+        "Library/LaunchDaemons/com.taurusxin.arrayconnect.network.plist": "macos/com.taurusxin.arrayconnect.network.plist"
+      }
+    }
   }
 }

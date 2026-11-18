@@ -15,6 +15,7 @@ pub struct Bootstrap {
     autostart: bool,
     autostart_error: Option<String>,
     administrator: bool,
+    network_service: Option<&'static str>,
     wintun_available: bool,
     storage_path: String,
     platform: String,
@@ -47,6 +48,7 @@ pub async fn bootstrap(state: State<'_, Arc<Controller>>) -> Result<Bootstrap, S
             autostart,
             autostart_error,
             administrator: crate::platform::administrator(),
+            network_service: crate::platform::network_service_status(),
             wintun_available: crate::platform::wintun_available(),
             storage_path: state.directory.display().to_string(),
             platform: std::env::consts::OS.into(),
@@ -58,6 +60,34 @@ pub async fn bootstrap(state: State<'_, Arc<Controller>>) -> Result<Bootstrap, S
     .await
     .map_err(|_| "初始化任务失败")?
 }
+#[tauri::command]
+pub fn network_service_status() -> Option<&'static str> {
+    crate::platform::network_service_status()
+}
+
+#[tauri::command]
+pub async fn authorize_network_service(
+    app: tauri::AppHandle,
+) -> Result<Option<&'static str>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let (result, receiver) = tokio::sync::oneshot::channel();
+        app.run_on_main_thread(move || {
+            let outcome = arraysslvpn::network::macos_service::authorize_service()
+                .map(|status| Some(status.as_str()))
+                .map_err(|error| error.to_string());
+            let _ = result.send(outcome);
+        })
+        .map_err(|error| error.to_string())?;
+        receiver.await.map_err(|_| "无法启用 macOS VPN 网络服务")?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("当前平台不使用 macOS VPN 网络服务".into())
+    }
+}
+
 #[tauri::command]
 pub async fn save_profile(
     state: State<'_, Arc<Controller>>,
