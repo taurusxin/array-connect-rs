@@ -50,12 +50,21 @@ const navigation = [
 
 export function App() {
   const app = useApp();
+  const [customTitlebar, setCustomTitlebar] = useState(!native);
   const [editor, setEditor] = useState<{ profile: Profile | null } | null>(
     null,
   );
   const [deleting, setDeleting] = useState<Profile | null>(null);
   useEffect(() => {
     void app.initialize();
+    if (native) {
+      void getCurrentWindow()
+        .isDecorated()
+        .then(
+          (decorated) => setCustomTitlebar(!decorated),
+          () => setCustomTitlebar(true),
+        );
+    }
   }, []);
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -76,35 +85,37 @@ export function App() {
   }, [app.notice]);
   return (
     <TooltipProvider>
-      <div className="app-frame">
-        <div className="titlebar" data-tauri-drag-region>
-          <span data-tauri-drag-region>Array Connect</span>
-          <div className="window-controls">
-            {native && (
-              <>
-                <button
-                  aria-label="最小化窗口"
-                  onClick={() => void getCurrentWindow().minimize()}
-                >
-                  <Minus size={14} />
-                </button>
-                <button
-                  aria-label="最大化窗口"
-                  onClick={() => void getCurrentWindow().toggleMaximize()}
-                >
-                  <Square size={11} />
-                </button>
-                <button
-                  className="window-close"
-                  aria-label="关闭窗口"
-                  onClick={() => void getCurrentWindow().close()}
-                >
-                  <X size={15} />
-                </button>
-              </>
-            )}
+      <div className={customTitlebar ? "app-frame custom-window" : "app-frame"}>
+        {customTitlebar && (
+          <div className="titlebar" data-tauri-drag-region>
+            <span data-tauri-drag-region>Array Connect</span>
+            <div className="window-controls">
+              {native && (
+                <>
+                  <button
+                    aria-label="最小化窗口"
+                    onClick={() => void getCurrentWindow().minimize()}
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <button
+                    aria-label="最大化窗口"
+                    onClick={() => void getCurrentWindow().toggleMaximize()}
+                  >
+                    <Square size={11} />
+                  </button>
+                  <button
+                    className="window-close"
+                    aria-label="关闭窗口"
+                    onClick={() => void getCurrentWindow().close()}
+                  >
+                    <X size={15} />
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        )}
         <div className="app-layout">
           <aside className="sidebar">
             <div className="brand">

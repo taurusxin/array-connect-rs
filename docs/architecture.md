@@ -1,6 +1,6 @@
 # 代码目录与模块职责
 
-项目保持单个 Cargo package，同时构建 `arraysslvpn` 库与同名 CLI。库入口统一导出供 GUI 使用的公共类型；终端输入、日志初始化和信号处理由 CLI 负责。
+项目保持单个 Cargo package，同时构建 `arraysslvpn` 库与 `array-connect` CLI。库入口统一导出供 GUI 使用的公共类型；终端输入、日志初始化和信号处理由 CLI 负责。
 
 ```text
 src/

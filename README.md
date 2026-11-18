@@ -46,13 +46,13 @@ cargo build --release --locked --features openssl-tls
 
 ~~~powershell
 # 只做 TCP/TLS 探测，无需管理员、Wintun 或账号密码，不发送 HTTP
-.\target\release\arraysslvpn.exe vpn.example.com --tls-backend openssl --tls-probe
+.\target\release\array-connect.exe vpn.example.com --tls-backend openssl --tls-probe
 
 # 网关证书暂未受信任时，只做无凭据探测并显示观测到的公钥指纹
-.\target\release\arraysslvpn.exe vpn.example.com --tls-backend openssl --tls-probe --insecure
+.\target\release\array-connect.exe vpn.example.com --tls-backend openssl --tls-probe --insecure
 
 # 与管理员核对证书指纹后，再固定公钥连接
-.\target\release\arraysslvpn.exe vpn.example.com --tls-backend openssl --servercert "pin-sha256:已确认的BASE64指纹" -u your-user -vv
+.\target\release\array-connect.exe vpn.example.com --tls-backend openssl --servercert "pin-sha256:已确认的BASE64指纹" -u your-user -vv
 ~~~
 
 --tls-probe 向 stdout 输出 JSON：后端、协议、密码套件和 SPKI 指纹。未验证连接中观测到的指纹不能单独证明服务器身份，应与可信来源核对后使用。兼容后端同样支持系统根证书、自定义 CA、公钥固定、代理、认证和隧道转发。
@@ -66,14 +66,14 @@ cargo build --release --locked
 cargo run -- --help
 ~~~
 
-Windows 生成 `target\release\arraysslvpn.exe`；Linux/macOS 生成 `target/release/arraysslvpn`。
+Windows 生成 `target\release\array-connect.exe`；Linux/macOS 生成 `target/release/array-connect`。
 
 ### Windows
 
 从 [Wintun 官方网站](https://www.wintun.net/) 获取匹配架构的 `wintun.dll`，放在实际执行的 EXE 旁边。程序仅从 EXE 所在目录加载该 DLL。使用管理员终端运行。
 
 ~~~powershell
-.\target\release\arraysslvpn.exe https://vpn.example.com -u your-user --authgroup local -v
+.\target\release\array-connect.exe https://vpn.example.com -u your-user --authgroup local -v
 ~~~
 
 交互式密码提示出现在 TCP/TLS 握手和配置的证书校验策略通过之后，随后在同一条 TLS 连接上提交登录。握手或证书校验失败不会要求输入密码。输入保持隐藏，支持粘贴、退格和 Ctrl+C/Esc 取消，等待输入不计入连接超时。配置文件中不保存密码。Windows DNS API 要求 Windows 10 2004 / Server 2022 或更新系统。
@@ -83,7 +83,7 @@ Windows 生成 `target\release\arraysslvpn.exe`；Linux/macOS 生成 `target/rel
 需要 root、可用的 `/dev/net/tun` 和 iproute2（`ip` 命令）。DNS 自动选择 systemd-resolved 的 `resolvectl`，或支持 `-a/-d/-m/-x` 的 resolvconf。没有这些解析器时，可显式使用 `--no-dns` 自行管理 DNS。
 
 ~~~sh
-sudo ./target/release/arraysslvpn https://vpn.example.com -u your-user -v
+sudo ./target/release/array-connect https://vpn.example.com -u your-user -v
 ~~~
 
 ### macOS
@@ -91,7 +91,7 @@ sudo ./target/release/arraysslvpn https://vpn.example.com -u your-user -v
 需要管理员权限，使用系统 utun、路由套接字及 scutil/SystemConfiguration 动态 DNS。默认让系统分配 utun 名称，显式指定名称时使用未占用的 `utunN`。
 
 ~~~sh
-sudo ./target/release/arraysslvpn https://vpn.example.com -u your-user -v
+sudo ./target/release/array-connect https://vpn.example.com -u your-user -v
 ~~~
 
 macOS 后端面向普通桌面进程；沙箱应用/商店分发的 Network Extension 接入不在此版本范围内。
@@ -102,32 +102,32 @@ macOS 后端面向普通桌面进程；沙箱应用/商店分发的 Network Exte
 
 ~~~sh
 # 仅登录，stdout 输出 Cookie；不创建网卡，不需要管理员权限
-arraysslvpn vpn.example.com -u your-user --authenticate
+array-connect vpn.example.com -u your-user --authenticate
 
 # 仅认证时将 Cookie 保存到受保护的文件，由使用者管理文件权限及生命周期
-arraysslvpn vpn.example.com -u your-user --authenticate > session.cookie
-arraysslvpn vpn.example.com --cookie-file session.cookie
+array-connect vpn.example.com -u your-user --authenticate > session.cookie
+array-connect vpn.example.com --cookie-file session.cookie
 
 # 使用私有 CA，或固定公钥（两种信任方式择一）
-arraysslvpn vpn.example.com -u your-user --cafile company-ca.pem
-arraysslvpn vpn.example.com -u your-user --servercert 'pin-sha256:BASE64_SHA256_SPKI'
+array-connect vpn.example.com -u your-user --cafile company-ca.pem
+array-connect vpn.example.com -u your-user --servercert 'pin-sha256:BASE64_SHA256_SPKI'
 
 # SOCKS5 或 HTTP CONNECT 代理；代理 URL 的凭据需要百分号编码
-arraysslvpn vpn.example.com -u your-user --proxy socks5://127.0.0.1:1080
-arraysslvpn vpn.example.com -u your-user --proxy http://127.0.0.1:8080
+array-connect vpn.example.com -u your-user --proxy socks5://127.0.0.1:1080
+array-connect vpn.example.com -u your-user --proxy http://127.0.0.1:8080
 
 # 固定连接 IP，TLS SNI 与 HTTP Host 仍使用 vpn.example.com
-arraysslvpn vpn.example.com -u your-user --resolve 203.0.113.10 --port 443
+array-connect vpn.example.com -u your-user --resolve 203.0.113.10 --port 443
 
 # 自定义路由和网络配置
-arraysslvpn vpn.example.com -u your-user --route-mode server --route 10.20.0.0/16 --exclude-route 192.168.0.0/16
-arraysslvpn vpn.example.com -u your-user --route-mode none --no-dns --mtu 1300
+array-connect vpn.example.com -u your-user --route-mode server --route 10.20.0.0/16 --exclude-route 192.168.0.0/16
+array-connect vpn.example.com -u your-user --route-mode none --no-dns --mtu 1300
 
 # 不重连，或覆盖 DPD 间隔
-arraysslvpn vpn.example.com -u your-user --reconnect-timeout 0 --dpd 30
+array-connect vpn.example.com -u your-user --reconnect-timeout 0 --dpd 30
 
 # 详细日志：-v 为 debug，-vv 为 trace；逐包只记录方向、长度和类型
-arraysslvpn vpn.example.com -u your-user -vv --log-format json --log-file vpn.log
+array-connect vpn.example.com -u your-user -vv --log-format json --log-file vpn.log
 ~~~
 
 自动化调用支持 `--passwd-on-stdin` / `--cookie-on-stdin`，读取一行；这些显式提供凭据的方式保持预先读取。用户名密码和 Cookie 认证不能混用。认证失败停止重试。Cookie 过期时返回 Authentication；密码模式重连使用本次会话内存中的密码重新登录，避免重复弹出输入框。
@@ -137,8 +137,8 @@ arraysslvpn vpn.example.com -u your-user -vv --log-format json --log-file vpn.lo
 复制 [config.example.toml](config.example.toml) 后使用：
 
 ~~~sh
-arraysslvpn --config config.local.toml
-arraysslvpn --config config.local.toml --mtu 1300 --no-dns
+array-connect --config config.local.toml
+array-connect --config config.local.toml --mtu 1300 --no-dns
 ~~~
 
 优先级为 CLI > TOML > 默认值。列表参数在 CLI 提供后替代配置文件中的对应列表。布尔参数允许 `--insecure=false`、`--no-dns=false` 覆盖文件设置。配置文件拒绝 password/cookie 等明文凭据字段；可以指定 Cookie 文件。代理 URL 若含凭据，应由使用者保护该配置文件。

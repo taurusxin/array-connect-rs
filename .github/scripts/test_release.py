@@ -71,7 +71,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_windows_archive_requires_and_includes_wintun_and_license(self):
         target = "x86_64-pc-windows-msvc"
-        self.write(f"target/{target}/release/arraysslvpn.exe")
+        self.write(f"target/{target}/release/array-connect.exe")
         for name in ("README.md", "LICENSE", "NOTICE", "config.example.toml"):
             self.write(name)
         with self.assertRaisesRegex(ValueError, "wintun.dll"):
@@ -83,7 +83,7 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(
                 {Path(name).name for name in package.namelist()},
                 {
-                    "arraysslvpn.exe",
+                    "array-connect.exe",
                     "wintun.dll",
                     "WINTUN-LICENSE.txt",
                     "README.md",
@@ -95,7 +95,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_unix_archive_preserves_executable_mode(self):
         target = "aarch64-apple-darwin"
-        self.write(f"target/{target}/release/arraysslvpn")
+        self.write(f"target/{target}/release/array-connect")
         for name in ("README.md", "LICENSE", "NOTICE", "config.example.toml"):
             self.write(name)
         archive = release.package_cli(self.root, self.output, "1.2.3", target)
@@ -103,7 +103,7 @@ class ReleaseTests(unittest.TestCase):
             members = {
                 Path(member.name).name: member for member in package.getmembers()
             }
-            self.assertEqual(members["arraysslvpn"].mode, 0o755)
+            self.assertEqual(members["array-connect"].mode, 0o755)
             self.assertEqual(members["LICENSE"].mode, 0o644)
 
     def test_desktop_collection_rejects_missing_or_ambiguous_installers(self):

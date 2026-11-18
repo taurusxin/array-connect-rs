@@ -99,4 +99,4 @@ jobs:
         run: pnpm tauri build --debug --no-bundle -- --locked
       - name: Verify embedded Windows elevation manifest
         if: runner.os == 'Windows'
-        run: ./scripts/verify-windows-manifest.ps1 -Executable src-tauri/target/debug/arraysslvpn-desktop.exe
+        run: ./scripts/verify-windows-manifest.ps1 -Executable src-tauri/target/debug/array-connect.exe

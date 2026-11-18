@@ -26,6 +26,8 @@
 
 资产名包含产品、版本、系统和架构，例如 `arraysslvpn-cli-1.2.3-windows-x86_64.zip`、`array-connect-1.2.3-macos-aarch64.dmg`。CLI 压缩包还附带 README、LGPL 许可证、上游归属及 TOML 示例。
 
+两种产物中的可执行文件均为 `array-connect`，Windows 使用 `array-connect.exe`。Windows 的 NSIS 安装器仍使用 `Array Connect` 查找已有安装，升级时会使用已记录的旧 EXE 名称清理旧文件。应用标识 `com.taurusxin.arrayconnect` 用于关联现有应用数据。若选择先卸载旧版，保留用户数据时请勿勾选卸载器中的删除应用数据选项。
+
 两种客户端均将 OpenSSL 从锁定的源码依赖静态链接，默认 TLS 后端仍为 Rustls。Windows CLI 的 Wintun 与桌面端使用同一下载脚本及 SHA-256 验证。当前 Windows 产物未做代码签名；macOS 使用 ad-hoc 签名，未配置 Apple Developer 签名及 notarization。
 
 Windows 发布使用 PowerShell 执行编译，枚举 PATH 中的所有 Perl，逐个探测平台并选择单个 `MSWin32` 原生解释器，检查 OpenSSL 所需模块后将绝对路径写入 `OPENSSL_SRC_PERL` / `PERL`。找不到原生解释器时明确列出检查过的路径并停止。这样可避免将多个路径当成一个程序调用，或使用 MSYS Perl 导致 `Locale/Maketext/Simple.pm` 查找失败及 Windows 模块路径被错误解析。Linux/macOS 继续使用 Bash。

@@ -9,6 +9,10 @@ description = "Array Connect desktop client"
 name = "arraysslvpn_desktop"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "array-connect"
+path = "src/main.rs"
+
 [features]
 default = ["embedded-openssl"]
 embedded-openssl = ["arraysslvpn/openssl-vendored"]
@@ -47,6 +51,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6", features = ["apple-native"] }
+tauri = { version = "2", features = ["image-png"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust"] }

@@ -1,6 +1,6 @@
 //! Current-user interactive logon task: supports a requireAdministrator EXE
 //! without storing a Windows password or running the GUI as SYSTEM.
-use std::sync::Mutex;
+use std::{path::Path, sync::Mutex};
 use tauri_plugin_autostart::ManagerExt;
 use windows::{
     Win32::{
@@ -15,14 +15,14 @@ use windows::{
                 CoUninitialize,
             },
             TaskScheduler::{
-                ITaskFolder, ITaskService, TASK_CREATE_OR_UPDATE, TASK_LOGON_INTERACTIVE_TOKEN,
-                TaskScheduler,
+                IExecAction, IRegisteredTask, ITaskFolder, ITaskService, TASK_CREATE_OR_UPDATE,
+                TASK_LOGON_INTERACTIVE_TOKEN, TaskScheduler,
             },
             Threading::{GetCurrentProcess, OpenProcessToken},
             Variant::VARIANT,
         },
     },
-    core::{BSTR, PWSTR},
+    core::{BSTR, Interface, PWSTR},
 };
 
 static OPERATION: Mutex<()> = Mutex::new(());
@@ -104,12 +104,12 @@ fn with_folder<T>(
         unsafe { service.GetFolder(&BSTR::from("\\")) }.map_err(|e| error("打开目录", e))?;
     operation(&folder, &BSTR::from(format!("ArrayConnect-{sid}")), &sid)
 }
-fn enabled(folder: &ITaskFolder, name: &BSTR) -> Result<bool, String> {
+fn enabled_task(folder: &ITaskFolder, name: &BSTR) -> Result<Option<IRegisteredTask>, String> {
     match unsafe { folder.GetTask(name) } {
         Ok(task) => unsafe { task.Enabled() }
-            .map(|enabled| enabled.as_bool())
+            .map(|enabled| enabled.as_bool().then_some(task))
             .map_err(|e| error("读取状态", e)),
-        Err(e) if matches!(e.code().0 as u32, 0x80070002 | 0x80070003) => Ok(false),
+        Err(e) if matches!(e.code().0 as u32, 0x80070002 | 0x80070003) => Ok(None),
         Err(e) => Err(error("读取状态", e)),
     }
 }
@@ -143,10 +143,50 @@ fn register(folder: &ITaskFolder, name: &BSTR, sid: &str) -> Result<(), String> 
     .map_err(|e| error("注册", e))?;
     Ok(())
 }
+fn legacy_executable_path(current: &Path, registered: &str) -> bool {
+    current
+        .file_name()
+        .is_some_and(|name| name == "array-connect.exe")
+        && registered.eq_ignore_ascii_case(
+            &current
+                .with_file_name("arraysslvpn-desktop.exe")
+                .to_string_lossy(),
+        )
+}
+fn migrate_binary_name(
+    folder: &ITaskFolder,
+    name: &BSTR,
+    sid: &str,
+    task: &IRegisteredTask,
+) -> Result<(), String> {
+    let executable = std::env::current_exe().map_err(|_| "无法确定应用路径")?;
+    let read_error = |e| error("读取启动路径", e);
+    let definition = unsafe { task.Definition() }.map_err(read_error)?;
+    let actions = unsafe { definition.Actions() }.map_err(read_error)?;
+    let mut count = 0;
+    unsafe { actions.Count(&mut count) }.map_err(read_error)?;
+    if count != 1 {
+        return Ok(());
+    }
+    let action = unsafe { actions.get_Item(1) }.map_err(read_error)?;
+    let Ok(action) = action.cast::<IExecAction>() else {
+        return Ok(());
+    };
+    let mut path = BSTR::new();
+    unsafe { action.Path(&mut path) }.map_err(read_error)?;
+    if legacy_executable_path(&executable, &path.to_string()) {
+        register(folder, name, sid)?;
+    }
+    Ok(())
+}
 pub fn is_enabled(app: &tauri::AppHandle) -> Result<bool, String> {
     let _operation = OPERATION.lock().unwrap();
     with_folder(|folder, name, sid| {
-        let enabled = enabled(folder, name)?;
+        let task = enabled_task(folder, name)?;
+        if let Some(task) = &task {
+            migrate_binary_name(folder, name, sid, task)?;
+        }
+        let enabled = task.is_some();
         // Preserve an existing user choice when migrating from the old Run key.
         if app
             .autolaunch()
@@ -176,7 +216,7 @@ pub fn set_enabled(app: &tauri::AppHandle, should_enable: bool) -> Result<bool, 
             remove(folder, name)?;
         }
         app.autolaunch().disable().map_err(|_| "旧自启项移除失败")?;
-        enabled(folder, name)
+        Ok(enabled_task(folder, name)?.is_some())
     })
 }
 fn xml_escape(value: &str) -> String {
@@ -205,6 +245,19 @@ fn task_xml(executable: &str, directory: &str, sid: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn migrates_only_the_previous_binary_in_the_same_installation() {
+        let current = Path::new(r"C:\Users\Example\Apps\Array Connect\array-connect.exe");
+        assert!(legacy_executable_path(
+            current,
+            r"c:\users\example\apps\array connect\arraysslvpn-desktop.exe",
+        ));
+        assert!(!legacy_executable_path(
+            current,
+            r"C:\Other\Array Connect\arraysslvpn-desktop.exe",
+        ));
+        assert!(!legacy_executable_path(current, current.to_str().unwrap()));
+    }
     #[test]
     fn startup_task_is_interactive_scoped_to_user_and_escapes_paths() {
         let xml = task_xml(

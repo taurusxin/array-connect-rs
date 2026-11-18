@@ -110,11 +110,11 @@ jobs:
       - name: Build CLI with statically linked OpenSSL
         if: runner.os != 'Windows'
         shell: bash
-        run: cargo build --locked --release --bin arraysslvpn --features openssl-vendored --target "$RELEASE_TARGET"
+        run: cargo build --locked --release --features openssl-vendored --target "$RELEASE_TARGET"
       - name: Build Windows CLI with statically linked OpenSSL
         if: runner.os == 'Windows'
         shell: pwsh
-        run: cargo build --locked --release --bin arraysslvpn --features openssl-vendored --target "$env:RELEASE_TARGET"
+        run: cargo build --locked --release --features openssl-vendored --target "$env:RELEASE_TARGET"
       - name: Prepare verified Windows driver and license
         if: runner.os == 'Windows'
         shell: pwsh
@@ -230,7 +230,14 @@ jobs:
       - name: Verify embedded Windows elevation manifest
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./desktop/scripts/verify-windows-manifest.ps1 -Executable "desktop/src-tauri/target/$env:RELEASE_TARGET/release/arraysslvpn-desktop.exe"
+        run: |
+          $metadata = cargo metadata --locked --no-deps --format-version 1 --manifest-path desktop/src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $binaries = @(($metadata | ConvertFrom-Json).packages.targets | Where-Object { $_.kind -contains 'bin' })
+          if ($binaries.Count -ne 1) { throw 'Expected exactly one desktop binary in the tagged Cargo manifest.' }
+          $config = Get-Content -Raw desktop/src-tauri/tauri.conf.json | ConvertFrom-Json
+          $binary = $config.mainBinaryName ?? $binaries[0].name
+          ./desktop/scripts/verify-windows-manifest.ps1 -Executable "desktop/src-tauri/target/$env:RELEASE_TARGET/release/$binary.exe"
       - name: Collect installers with unique platform names
         shell: bash
         run: python .github/scripts/release.py desktop --tag "$RELEASE_TAG" --target "$RELEASE_TARGET"

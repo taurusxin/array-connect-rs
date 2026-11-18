@@ -13,7 +13,7 @@ async fn main() -> std::process::ExitCode {
     match run().await {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("arraysslvpn: {error}");
+            eprintln!("array-connect: {error}");
             std::process::ExitCode::FAILURE
         }
     }

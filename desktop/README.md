@@ -15,6 +15,7 @@ Tauri 2 + React/TypeScript，直接调用仓库中的 `arraysslvpn` Rust 库。�
 - 实时日志、搜索、等级筛选、暂停显示、复制；采集等级在偏好设置中立即生效。内存最多保留 2,000 条，日志不自动写入文件。
 - 连接时长、上传/下载流量、每秒网速与最近 60 秒曲线；悬停图表可查看采样时间和上传/下载速度。每 5 秒保存一次统计，正常断开时保存最终值；重启会将未正常结束的记录标记为中断。
 - 开机自启（启动应用，不自动连接 VPN）、浅色/深色/跟随系统外观。
+- macOS 使用系统窗口圆角、红黄绿按钮和独立的单色菜单栏图标，图标由系统随菜单栏外观着色。
 - 点击关闭窗口时询问「最小化到托盘」或「退出程序」，可勾选「不再询问」记住本次选择；在偏好设置中可恢复每次询问。托盘单击恢复窗口，右键菜单按实际状态显示未连接、取消连接或断开 VPN。
 - 窗口、托盘、侧栏等所有退出入口在连接尚未结束时始终询问是否断开，不受已记住的关闭方式影响。实际退出等待 VPN 清理、配置及统计写入完成；确认后拒绝新连接和配置写入。旧版关闭偏好迁移为默认每次询问。
 
@@ -31,7 +32,11 @@ pnpm tauri build
 
 默认将 OpenSSL 从源码构建并静态链接，GUI 仍默认选择 Rustls。旧版 Array 网关可在配置的「高级 → TLS 后端」中显式选择 OpenSSL，不需要目标机器另外安装 OpenSSL。
 
+CLI 与桌面端的可执行文件都叫 `array-connect`（Windows 为 `array-connect.exe`），分别构建到仓库根目录的 `target` 和 `desktop/src-tauri/target`。同时构建两者时，请使用不同的 Cargo 输出目录。
+
 Windows 的准备脚本从 [Wintun 官方网站](https://www.wintun.net/) 下载签名的 0.14.1 ZIP，按官方公布的 SHA-256 校验，选择当前架构的 DLL 并附带原始许可证。`tauri dev/build` 会自动执行准备步骤；开发版将 DLL 放到 EXE 同目录，安装包将它放入应用目录。脚本只下载和复制文件，创建 VPN 网卡发生在用户连接时。
+
+修改 `assets/macos-tray.svg` 后，可在 `desktop` 目录运行 `pnpm tauri icon assets/macos-tray.svg --png 36 --output src-tauri/icons`，再将生成的 `36x36.png` 命名为 `macos-tray.png`。
 
 仅开发浏览器界面：
 
@@ -45,7 +50,21 @@ pnpm dev
 
 Windows EXE 已嵌入 `requireAdministrator` 清单，启动时由系统请求 UAC 管理员授权。Windows 开发时请从管理员终端执行 `pnpm tauri dev`。macOS/Linux 编辑配置可正常运行，实际连接仍需要 root 权限；独立提权服务尚未实现。Windows 同一用户的普通/管理员进程共享该用户的系统凭据库。Linux 需要运行用户可用、已解锁的 Secret Service；密钥库不可用时返回明确错误，不回退到明文保存。
 
+macOS 上可先用有管理员权限的账户运行下载的 CLI，配置可参考仓库根目录的 `config.example.toml`：
+
+```sh
+sudo ./array-connect --config ./config.toml
+```
+
+CLI 在终端提示输入密码。网关要求 OTP 时，按网关要求在静态密码后追加当前验证码。
+
+桌面端后续可通过 `SMAppService` 在 macOS 13 及以上注册经过签名的 LaunchDaemon，由用户在系统设置批准。GUI 继续以当前用户运行，保留对 SQLite 和登录钥匙串的访问。独立 helper 通过校验调用方身份的 XPC 接口创建 utun、应用路由与 DNS，并在断开或 GUI 退出后清理。该方案可以复用现有网络后端。[Apple Service Management 文档](https://developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos)
+
+如需接入 macOS 系统 VPN 管理，可将数据面适配为 Network Extension 的 Packet Tunnel Provider，由系统应用 VPN 网络设置。直接分发需要按 Apple 的部署要求配置 Developer ID 签名和 Network Extension entitlement。[Apple Network Extension 部署说明](https://developer.apple.com/documentation/technotes/tn3134-network-extension-provider-deployment)
+
 Windows 开机自启使用当前用户 SID 对应的交互式计划任务，以最高可用权限启动，兼容管理员清单，不保存 Windows 登录密码、不作为 SYSTEM 服务运行；已有普通登录启动项会迁移到此任务。macOS/Linux 继续使用 Tauri 官方 autostart 插件。所有平台均只启动应用，不自动连接 VPN。
+
+从旧版升级后首次启动，Windows 会更新指向同一安装目录中旧 EXE 的已启用自启任务。macOS/Linux 若之前开启过自启，升级后可关闭再开启一次，刷新系统登记的启动路径。
 
 数据位于 Tauri 按应用标识 `com.taurusxin.arrayconnect` 解析的 `app_data_dir` 中（以「偏好设置」显示的实际路径为准），数据库文件名为 `array-connect.sqlite3`。数据库不含密码、验证码、BASE32 密钥或代理密码。删除配置会删除对应的系统密钥库项，保留历史统计。取消「保存密码」、关闭 2FA 或关闭代理并保存，会移除相应已保存凭据。
 
@@ -77,7 +96,7 @@ Windows 还提供只解析内存任务定义、不注册任务的计划任务 XM
 
 ```powershell
 cargo test --manifest-path src-tauri/Cargo.toml windows_accepts_the_task_definition_without_registering_it -- --ignored
-./scripts/verify-windows-manifest.ps1 -Executable src-tauri/target/release/arraysslvpn-desktop.exe
+./scripts/verify-windows-manifest.ps1 -Executable src-tauri/target/release/array-connect.exe
 ```
 
 真实网关账号和网络恢复需在本机验收。DTLS、完整 IPv6 网络配置和原库已有的限制保持不变。强制终止进程不能保证完成正常网络清理。

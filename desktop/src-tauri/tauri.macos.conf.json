@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Array Connect",
+        "width": 1180,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 680,
+        "decorations": true,
+        "titleBarStyle": "Visible",
+        "center": true
+      }
+    ]
+  }
+}

@@ -121,13 +121,17 @@
     transparent;
 }
 .app-frame {
+  display: flex;
+  flex-direction: column;
   height: 100dvh;
   min-height: 580px;
   overflow: hidden;
+}
+.app-frame.custom-window {
   border: 1px solid var(--border);
 }
 .titlebar {
-  height: 32px;
+  flex: 0 0 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -162,7 +166,8 @@
 }
 .app-layout {
   display: flex;
-  height: calc(100% - 32px);
+  flex: 1;
+  min-height: 0;
 }
 .sidebar {
   display: flex;

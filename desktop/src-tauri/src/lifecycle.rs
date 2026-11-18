@@ -225,13 +225,21 @@ impl Lifecycle {
     }
     pub fn install_tray(&self, app: &tauri::AppHandle) -> tauri::Result<()> {
         let menu = tray_menu(app, "Disconnected", false)?;
-        let mut builder = TrayIconBuilder::with_id("main-tray")
+        let builder = TrayIconBuilder::with_id("main-tray")
             .tooltip("Array Connect · 未连接")
             .menu(&menu)
             .show_menu_on_left_click(false);
-        if let Some(icon) = app.default_window_icon() {
-            builder = builder.icon(icon.clone());
-        }
+        #[cfg(target_os = "macos")]
+        let builder = builder
+            .icon(tauri::image::Image::from_bytes(include_bytes!(
+                "../icons/macos-tray.png"
+            ))?)
+            .icon_as_template(true);
+        #[cfg(not(target_os = "macos"))]
+        let builder = match app.default_window_icon() {
+            Some(icon) => builder.icon(icon.clone()),
+            None => builder,
+        };
         builder
             .on_menu_event(|app, event| {
                 let controller = app.state::<Arc<Controller>>().inner().clone();

@@ -883,7 +883,7 @@ async fn password_login_accepts_old_cookie_cleanup_before_the_new_session_cookie
 #[tokio::test]
 async fn cli_tls_probe_needs_no_credentials_and_sends_no_http() {
     let mock = Mock::start(Options::default()).await;
-    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_arraysslvpn"))
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_array-connect"))
         .args([
             &format!("https://localhost:{}", mock.address.port()),
             "--resolve",
@@ -1064,7 +1064,7 @@ async fn dead_peer_deadline_cleans_up_without_reconnect() {
 async fn cli_authenticate_stdin_has_only_cookie_on_stdout() {
     use std::process::Stdio;
     let mock = Mock::start(Options::default()).await;
-    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_arraysslvpn"))
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_array-connect"))
         .args([
             &format!("https://localhost:{}", mock.address.port()),
             "--resolve",

@@ -17,7 +17,7 @@ use std::{
 /// Array Networks SSL VPN over TLS. Requires administrator/root for system networking.
 /// DTLS and full IPv6 network configuration are deferred.
 #[derive(Parser, Default, Deserialize)]
-#[command(version, about)]
+#[command(name = "array-connect", version, about)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub(super) struct Args {
     /// HTTPS gateway URL or hostname.
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn cli_overrides_file_and_supports_explicit_false() {
         let mut cli = Args::try_parse_from([
-            "arraysslvpn",
+            "array-connect",
             "vpn.example.com",
             "--insecure=false",
             "--mtu",
@@ -277,8 +277,15 @@ mod tests {
     fn rejects_secret_in_config() {
         assert!(toml::from_str::<Args>("password = 'secret'").is_err());
         assert!(
-            Args::try_parse_from(["arraysslvpn", "x", "--cookie", "ANsession=x", "--user", "u"])
-                .is_err()
+            Args::try_parse_from([
+                "array-connect",
+                "x",
+                "--cookie",
+                "ANsession=x",
+                "--user",
+                "u"
+            ])
+            .is_err()
         );
     }
     #[test]

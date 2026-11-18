@@ -84,7 +84,7 @@ def desktop_names(version, target):
 
 def package_cli(root, output, version, target):
     windows = target == "x86_64-pc-windows-msvc"
-    binary = "arraysslvpn.exe" if windows else "arraysslvpn"
+    binary = "array-connect.exe" if windows else "array-connect"
     files = [(root / "target" / target / "release" / binary, binary)]
     files += [
         (root / name, name)

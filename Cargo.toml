@@ -52,7 +52,7 @@ windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
 
 [[bin]]
-name = "arraysslvpn"
+name = "array-connect"
 path = "src/bin/arraysslvpn/main.rs"
 required-features = ["cli"]
 
